@@ -11,7 +11,7 @@ import * as messageForwarder from "./dist/message_forwarder.js"; // 导入消息
  * 扩展名称 / Extension name
  * @type {string}
  */
-const extensionName = "st-extension-example";
+const extensionName = "SillyTavern-NewAge";
 /**
  * 扩展文件夹路径 / Extension folder path
  * @type {string}
