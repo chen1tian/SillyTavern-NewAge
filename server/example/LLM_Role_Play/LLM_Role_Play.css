@@ -1,0 +1,768 @@
+/* =======================================================================
+ *                      LLM Role Play - CSS Styles
+ * =======================================================================
+ */
+
+/* ====================  通用样式 (General Styles) ==================== */
+
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  margin: 0;
+  padding: 0;
+  background-color: #f4f4f4;
+  /* 浅灰色背景 */
+  color: #333;
+  /* 深灰色文本 */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  /* 确保 body 至少占满整个视口高度 */
+}
+
+/* ====================  容器样式 (Container Styles) ==================== */
+
+.container {
+  width: 80%;
+  /* 容器宽度 */
+  max-width: 800px;
+  /* 最大宽度 */
+  background-color: #fff;
+  /* 白色背景 */
+  border-radius: 10px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  /* 防止内容溢出 */
+  display: flex;
+  flex-direction: column;
+  /* 垂直布局 */
+  height: 90vh;
+  /* 容器高度 */
+}
+
+/* ====================  头部样式 (Header Styles) ==================== */
+
+header {
+  background-color: #3498db;
+  /* 蓝色背景 */
+  color: #fff;
+  /* 白色文本 */
+  padding: 10px;
+  text-align: center;
+}
+
+/* ====================  按钮组样式 (Button Group Styles) ==================== */
+
+.button-group {
+  display: flex;
+  justify-content: space-around;
+  /* 按钮均匀分布 */
+  flex-wrap: wrap;
+  /* 允许按钮换行 */
+}
+
+.button-group button {
+  background-color: #fff;
+  color: #3498db;
+  border: none;
+  padding: 8px 15px;
+  margin: 5px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background-color 0.3s, color 0.3s;
+  font-size: 14px;
+}
+
+.button-group button:hover {
+  background-color: #2980b9;
+  color: #fff;
+}
+
+/* ====================  主要内容区域样式 (Main Content Area Styles) ==================== */
+
+main {
+  flex-grow: 1;
+  /* 占据剩余空间 */
+  padding: 20px;
+  overflow-y: auto;
+  /* 允许垂直滚动 */
+}
+
+/* ====================  聊天输出样式 (Chat Output Styles) ==================== */
+
+.chat-output {
+  display: flex;
+  flex-direction: column;
+  /* 消息垂直排列 */
+}
+
+.message {
+  margin-bottom: 20px;
+  border-radius: 10px;
+  padding: 15px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  display: flex;
+}
+
+.message-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background-color: #ddd;
+  /* 默认头像背景色 */
+  margin-right: 15px;
+  display: flex;
+  /* 使用 flexbox 居中 */
+  justify-content: center;
+  /* 水平居中 */
+  align-items: center;
+  /* 垂直居中 */
+  font-size: 1.2em;
+}
+
+.message-content {
+  flex-grow: 1;
+}
+
+.message-header {
+  display: flex;
+}
+
+.message-name {
+  font-weight: bold;
+  margin-bottom: 5px;
+  margin-right: 5px;
+}
+
+.message-date {
+  font-size: 0.8em;
+  color: #888;
+}
+
+.message-text {
+  margin-top: 5px;
+}
+
+.user-message {
+  background-color: #e6f7ff;
+  /* 用户消息背景色 */
+  align-self: flex-end;
+  /* 用户消息靠右 */
+}
+
+.llm-message {
+  background-color: #f0f0f0;
+  /* LLM 消息背景色 */
+  align-self: flex-start;
+  /* LLM 消息靠左 */
+}
+
+/* ====================  底部输入区域样式 (Footer Input Area Styles) ==================== */
+
+footer {
+  padding: 10px;
+  background-color: #eee;
+  border-top: 1px solid #ddd;
+}
+
+.input-area {
+  display: flex;
+  align-items: center;
+}
+
+#user-input {
+  flex-grow: 1;
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  resize: vertical;
+  /* 允许垂直调整大小 */
+  min-height: 50px;
+  margin-right: 10px;
+  font-size: 16px;
+}
+
+#send-button {
+  background-color: #3498db;
+  color: #fff;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background-color 0.3s;
+  font-size: 16px;
+}
+
+#send-button:hover {
+  background-color: #2980b9;
+}
+
+/* ====================  模态框样式 (Modal Styles) ==================== */
+
+.modal {
+  /* display: none;  移除 */
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0.95);
+  background-color: rgba(0, 0, 0, 0.7);
+  z-index: 1000;
+  width: 80%;
+  max-width: 600px;
+  max-height: 80vh;
+  overflow-y: auto;
+  padding: 20px;
+  border-radius: 10px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  opacity: 0;
+  /* 初始透明 */
+  visibility: hidden;
+  /* 初始隐藏 */
+  transition: transform 0.3s ease-out, opacity 0.3s ease-out, visibility 0.3s ease-out;
+  /* 添加 visibility 过渡 */
+}
+
+/* 模态框显示时的样式 */
+.modal.show {
+  opacity: 1;
+  visibility: visible;
+  /* 显示 */
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.modal-content {
+  background-color: #fff;
+  padding: 20px;
+  border-radius: 8px;
+  position: relative;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+/* 关闭按钮 */
+.close-button {
+  position: absolute;
+  top: 10px;
+  right: 15px;
+  font-size: 24px;
+  cursor: pointer;
+  color: #888;
+  transition: color 0.2s;
+}
+
+.close-button:hover {
+  color: #333;
+}
+
+/* 模态框标题 */
+.modal h2 {
+  margin-top: 0;
+  color: #3498db;
+  text-align: center;
+  font-size: 1.8em;
+  margin-bottom: 20px;
+}
+
+/* ====================  模态框内 - 设置区域样式 (Modal - Setting Sections) ==================== */
+
+.setting-section {
+  margin-bottom: 25px;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 20px;
+}
+
+.setting-section:last-child {
+  border-bottom: none;
+}
+
+.setting-section h3 {
+  color: #555;
+  margin-bottom: 12px;
+  font-size: 1.3em;
+}
+
+.setting-section label {
+  display: block;
+  margin-bottom: 6px;
+  color: #777;
+  font-size: 0.95em;
+}
+
+.setting-section select,
+.setting-section input[type="text"],
+.setting-section input[type="number"],
+.setting-section input[type="url"],
+/* 【新增】url 类型 */
+.setting-section input[type="color"]
+
+/* 【新增】color 类型 */
+  {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 1em;
+  box-sizing: border-box;
+  margin-bottom: 10px;
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+.setting-section select:focus,
+.setting-section input[type="text"]:focus,
+.setting-section input[type="number"]:focus,
+.setting-section input[type="url"]:focus,
+/* 【新增】url 类型 */
+.setting-section input[type="color"]:focus
+
+/* 【新增】color 类型 */
+  {
+  border-color: #3498db;
+  box-shadow: 0 0 5px rgba(52, 152, 219, 0.5);
+  outline: none;
+}
+
+/* ====================  模态框内 - 复选框样式 (Modal - Checkbox Styles) ==================== */
+/* 复选框样式 (改为传统复选框外观) */
+.checkbox-container {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.checkbox-container label {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  margin-right: 15px;
+  /*添加*/
+}
+
+.checkbox-container input[type="checkbox"] {
+  appearance: auto;
+  /* 使用浏览器默认外观 */
+  -webkit-appearance: auto;
+  width: auto;
+  /* 移除固定宽度 */
+  height: auto;
+  /* 移除固定高度 */
+  margin-right: 5px;
+  /* 与文本隔开 */
+  /* 其他样式（例如颜色、边框等）可以根据需要调整 */
+}
+
+/* ====================  模态框内 - 切换开关样式 (Modal - Switch Styles) ==================== */
+
+.switch-container {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  /*  调整大小 */
+  height: 20px;
+  /*  调整大小 */
+  margin-left: 10px;
+  /*  与 label 隔开 */
+  background-color: #ccc;
+  /*  凹槽的背景色 */
+  border-radius: 10px;
+  /*  圆角 */
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3);
+  /*  内阴影，模拟凹槽 */
+  transition: background-color 0.3s;
+  /*  平滑过渡 */
+}
+
+.switch::before {
+  /* 滑块 */
+  position: absolute;
+  content: "";
+  height: 16px;
+  /*  调整大小 */
+  width: 16px;
+  /*  调整大小 */
+  left: 2px;
+  /*  调整位置 */
+  bottom: 2px;
+  /*  调整位置 */
+  background-color: white;
+  transition: .4s;
+  border-radius: 50%;
+  /*  圆形滑块 */
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  /*  滑块阴影 */
+}
+
+/* 当复选框被选中时，滑块的样式 */
+input:checked+.switch::before {
+  transform: translateX(20px);
+  /*  滑块移动距离 */
+  background-color: #3498db;
+  /*  滑块选中时的颜色 */
+}
+
+/*当复选框选中时，凹槽的样式*/
+input:checked+.switch {
+  background-color: #94c9ed;
+}
+
+/* 【新增】隐藏原始复选框 */
+#layout-switch {
+  position: absolute;
+  left: -9999px;
+  /* 将复选框移出可视区域 */
+}
+
+/* ====================  模态框内 - 日志表格样式 (Modal - Log Table Styles) ==================== */
+
+.log-section {
+  margin-top: 20px;
+}
+
+.log-filter-container {
+  margin-bottom: 15px;
+}
+
+.log-table-wrapper {
+  overflow-x: auto;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+}
+
+.data-table th,
+.data-table td {
+  padding: 10px 15px;
+  border-bottom: 1px solid #eee;
+  text-align: left;
+  font-size: 0.9em;
+}
+
+.data-table th {
+  background-color: #f8f8f8;
+  color: #555;
+  font-weight: 600;
+}
+
+.data-table tbody tr:nth-child(even) {
+  background-color: #fafafa;
+}
+
+.data-table tbody tr:hover {
+  background-color: #f0f8ff;
+}
+
+.animated-details[open] {
+  animation: sweep .5s ease-in-out;
+}
+
+@keyframes sweep {
+  0% {
+    opacity: 0;
+    margin-left: -10px
+  }
+
+  100% {
+    opacity: 1;
+    margin-left: 0px
+  }
+}
+
+/* ====================  模态框内 - 按钮样式 (Modal - Button Styles) ==================== */
+
+#save-settings-btn {
+  background-color: #3498db;
+  color: #fff;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 16px;
+  transition: background-color 0.3s ease;
+}
+
+#save-settings-btn:hover {
+  background-color: #2980b9;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* ====================page_settings=============== */
+#save-page-settings-btn {
+  background-color: #3498db;
+  color: #fff;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 16px;
+  transition: background-color 0.3s ease;
+  /* 平滑过渡 */
+}
+
+#save-page-settings-btn:hover {
+  background-color: #2980b9;
+  /* 深蓝色 */
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  /* 悬停时添加阴影 */
+}
+
+.setting-section input[type="color"] {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 1em;
+  box-sizing: border-box;
+  margin-bottom: 10px;
+  transition: border-color 0.3s, box-shadow 0.3s;
+  -webkit-appearance: none;
+  /* 移除默认样式 */
+  appearance: none;
+  background-color: transparent;
+  /* 初始透明背景 */
+}
+
+.setting-section input[type="color"]:focus {
+  border-color: #3498db;
+  box-shadow: 0 0 5px rgba(52, 152, 219, 0.5);
+  outline: none;
+}
+
+/* 添加自定义颜色选择器样式 */
+.setting-section input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.setting-section input[type="color"]::-webkit-color-swatch {
+  border: none;
+  border-radius: 6px;
+  /* 与输入框一致 */
+  box-shadow: 0 0 3px rgba(0, 0, 0, 0.2);
+  /* 添加淡淡的阴影 */
+}
+
+/* ====================  自定义主题输入框样式 (Custom Theme Input Styles) ==================== */
+/* 已删除 */
+
+/* ====================  毛玻璃效果 (Frosted Glass Effect) ==================== */
+
+.frosted-glass {
+  background-color: rgba(255, 255, 255, 0.8);
+  /* 半透明白色背景 */
+  backdrop-filter: blur(10px);
+  /* 模糊背景 */
+  -webkit-backdrop-filter: blur(10px);
+  /* 兼容性 */
+}
+
+/* 仅对背景图应用毛玻璃效果 */
+.frosted-glass-bg {
+  position: relative;
+  /* 确保 ::before 伪元素相对于此元素定位 */
+}
+
+.frosted-glass-bg::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: -1;
+  /* 将伪元素放在背景图下方 */
+  background: inherit;
+  /* 继承 body 的背景 */
+  filter: blur(10px);
+  /* 模糊背景 */
+  -webkit-filter: blur(10px);
+  margin: -20px;
+  /* 扩大模糊区域，避免边缘出现清晰的边界 */
+}
+
+/* ====================  媒体查询 - 移动端适配 (Media Queries - Mobile Responsiveness) ==================== */
+
+/* 小屏幕 (例如手机) */
+@media (max-width: 768px) {
+
+  /* ... (之前的针对按钮的媒体查询) ... */
+  .button-group button {
+    padding: 8px 12px;
+    /* 适当调整内边距 */
+    font-size: 0;
+    /* 隐藏文字 */
+  }
+
+  .button-group button i {
+    font-size: 18px;
+    /* 适当增大图标大小 */
+    margin: 0;
+    /* 移除图标周围的额外边距 */
+  }
+
+  .input-area {
+    flex-direction: row;
+    /* 保持水平排列 */
+    align-items: stretch;
+    /* 让子元素高度相等 */
+  }
+
+  #user-input {
+    margin-right: 5px;
+    /* 输入框和按钮之间的小间距 */
+  }
+
+  #send-button {
+    margin-top: 0;
+    /* 移除之前的 margin-top */
+    width: auto;
+    /* 让按钮宽度自适应内容 */
+    padding: 10px;
+    /* 调整内边距 */
+    font-size: 0;
+    /* 隐藏文字 */
+    flex-shrink: 0;
+    /*不允许缩小*/
+  }
+
+  #send-button i {
+    font-size: 18px;
+  }
+}
+
+/* 更小屏幕 */
+@media (max-width: 480px) {
+
+  /* ... (之前的针对小屏幕的媒体查询) ... */
+  .container {
+    width: 95%;
+    /* 在更小的屏幕上增加容器宽度 */
+    height: 95vh;
+  }
+
+  #send-button {
+    padding: 8px;
+    /*进一步缩小内边距*/
+  }
+
+  #send-button i {
+    font-size: 16px;
+    /*进一步缩小图标*/
+  }
+}
+
+/* ====================  加载遮罩样式 (Loading Overlay Styles) ==================== */
+
+#loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(255, 255, 255, 0.8);
+  /* 半透明白色背景 */
+  backdrop-filter: blur(5px);
+  /* 毛玻璃效果 */
+  z-index: 9999;
+  /* 确保在最上层 */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.spinner {
+  font-size: 40px;
+  color: #3498db;
+}
+
+/* ====================  背景图适应模式 (Background Image Fit Modes) ==================== */
+
+.bg-cover {
+  background-size: cover;
+  background-repeat: no-repeat;
+  background-attachment: local;
+  /* 默认值 */
+}
+
+.bg-contain {
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-attachment: local;
+  /* 默认值 */
+}
+
+.bg-fill {
+  background-size: 100% 100%;
+  /* 拉伸以填充 */
+  background-repeat: no-repeat;
+  background-attachment: local;
+  /* 默认值 */
+}
+
+.bg-none {
+  background-size: auto;
+  /* 默认值 */
+  background-repeat: no-repeat;
+  background-attachment: local;
+  /* 默认值 */
+}
+
+.bg-repeat {
+  background-size: auto;
+  /* 默认值 */
+  background-repeat: repeat;
+  background-attachment: local;
+  /* 默认值 */
+}
+
+.bg-fixed {
+  background-size: cover;
+  /* 你可以根据需要更改 */
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  /* 固定背景 */
+}
+
+/* ====================  布局类 (Layout Classes) ==================== */
+
+/* 竖屏模式 (默认) */
+.vertical-layout .container {
+  flex-direction: column;
+  width: 80%;
+  max-width: 800px;
+  height: 90vh;
+  display: flex;
+  /* 确保启用了 flex */
+}
+
+/* 横屏模式 */
+.horizontal-layout .container {
+  width: 80%;
+  max-width: 1200px;
+  height: 60vh;
+  flex-direction: column;
+  /* 保持竖屏模式下的排列方式 */
+  display: flex;
+  /* 【重要】启用 flexbox */
+}
+
+/* 使用 flex-grow 让 main 占据剩余空间 */
+.vertical-layout main,
+.horizontal-layout main {
+  flex-grow: 1;
+  /* 【重要】占据剩余空间 */
+}
+
+/* 移除 header, main, footer 的固定高度 */
+.vertical-layout header,
+.vertical-layout footer,
+.horizontal-layout header,
+.horizontal-layout footer {
+  height: auto;
+  /* 【重要】让高度自适应内容 */
+}

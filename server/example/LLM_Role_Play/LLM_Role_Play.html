@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!--  Font Awesome  -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
+    integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg=="
+    crossorigin="anonymous" referrerpolicy="no-referrer" />
+  <!--  主题样式 (初始加载默认主题) -->
+  <link id="theme-link" rel="stylesheet" href="LLM_Role_Play.css">
+
+  <!--  你的主要 CSS 文件 (用于非主题相关的样式) -->
+  <link rel="stylesheet" href="LLM_Role_Play.css">
+
+</head>
+
+<body>
+  <!--  加载遮罩 (在页面加载时显示) -->
+  <div id="loading-overlay">
+    <div class="spinner">
+      <i class="fas fa-cog fa-spin"></i>
+    </div>
+  </div>
+
+  <!--  主要内容容器 -->
+    <div class="container">
+      <header>
+        <div class="button-group">
+          <button id="chat-settings-btn" data-i18n-title="chat_settings">
+            <i class="fas fa-comments"></i>
+            <span data-i18n="chat_settings">Chat Settings</span>
+          </button>
+          <button id="chat-history-btn" data-i18n-title="chat_history">
+            <i class="fas fa-history"></i>
+            <span data-i18n="chat_history">Chat History</span>
+          </button>
+          <button id="system-settings-btn" data-i18n-title="system_settings">
+            <i class="fas fa-cog"></i>
+            <span data-i18n="system_settings">System Settings</span>
+          </button>
+          <button id="page-settings-btn" data-i18n-title="page_settings">
+            <i class="fas fa-palette"></i>
+            <span data-i18n="page_settings">Page Settings</span>
+          </button>
+          <button id="character-select-btn" data-i18n-title="character_select">
+            <i class="fas fa-user-friends"></i>
+            <span data-i18n="character_select">Character Select</span>
+          </button>
+        </div>
+      </header>
+      <main>
+        <div id="chat-output" class="chat-output">
+          
+        </div>
+      </main>
+      <footer>
+        <div class="input-area">
+          <textarea id="user-input" data-i18n-placeholder="enter_message" data-i18n-title="enter_message"
+            placeholder="Enter your message..."></textarea>
+          <button id="send-button" data-i18n-title="send">
+            <i class="fas fa-paper-plane"></i>
+            <span data-i18n="send">Send</span>
+          </button>
+        </div>
+      </footer>
+    </div>
+
+    <!-- 模态框 (初始时隐藏) -->
+    <div id="chat-settings-modal" class="modal">
+      <div class="modal-content">
+        
+      </div>
+    </div>
+
+    <div id="chat-history-modal" class="modal">
+      <div class="modal-content">
+        
+      </div>
+    </div>
+
+    <div id="system-settings-modal" class="modal">
+      <div class="modal-content">
+        
+      </div>
+    </div>
+
+    <div id="page-settings-modal" class="modal">
+      <div class="modal-content">
+        
+      </div>
+    </div>
+
+    <div id="character-select-modal" class="modal">
+      <div class="modal-content">
+        
+      </div>
+    </div>
+  
+
+  <!--  Socket.IO 客户端库  -->
+  <script src="/socket.io/socket.io.js"></script>
+
+  <!--  你的 JavaScript 文件  -->
+  <script type="module" src="js/main.js"></script>
+
+  <!-- 【新增】 加载 htm -->
+  <script src="https://unpkg.com/htm@3.1.1/dist/htm.js"></script>
+</body>
+
+</html>

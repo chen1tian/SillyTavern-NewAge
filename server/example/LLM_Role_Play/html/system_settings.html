@@ -1,0 +1,94 @@
+<!--  注意：这个文件现在只包含模态框的内容，不包含 <div class="modal"> 和 <div class="modal-content">  -->
+<span class="close-button">×</span>
+<h2 data-i18n="system_settings_modal.system_settings">System Settings</h2>
+
+<!-- 语言设置 -->
+<div class="setting-section">
+  <h3 data-i18n="system_settings_modal.language">Language</h3>
+  <select id="language-select">
+    <option value="en">English</option>
+    <option value="zh">中文</option>
+  </select>
+</div>
+
+<!-- 服务器设置 -->
+<div class="setting-section">
+  <h3 data-i18n="system_settings_modal.server_settings">Server Settings</h3>
+  <label for="server-address" data-i18n="system_settings_modal.server_address"
+    data-i18n-title="system_settings_modal.server_address_desc">Server Address:</label>
+  <input type="text" id="server-address" placeholder="ws://localhost:4000">
+
+  <label for="reconnect-attempts" data-i18n="system_settings_modal.reconnect_attempts"
+    data-i18n-title="system_settings_modal.reconnect_attempts_desc">Reconnect Attempts:</label>
+  <input type="number" id="reconnect-attempts" value="10">
+
+  <label for="reconnect-delay" data-i18n="system_settings_modal.reconnect_delay"
+    data-i18n-title="system_settings_modal.reconnect_delay_desc">Reconnect Delay (ms):</label>
+  <input type="number" id="reconnect-delay" value="1000">
+
+  <label for="timeout" data-i18n="system_settings_modal.timeout"
+    data-i18n-title="system_settings_modal.timeout_desc">Timeout (ms):</label>
+  <input type="number" id="timeout" value="5000">
+
+  <div class="checkbox-container">
+    <label for="auto-connect" data-i18n="system_settings_modal.auto_connect"
+      data-i18n-title="system_settings_modal.auto_connect_desc">
+      <input type="checkbox" id="auto-connect" checked>
+      <span data-i18n="system_settings_modal.auto_connect">Auto Connect</span>
+    </label>
+  </div>
+
+  <label for="socketio-path" data-i18n="system_settings_modal.socketio_path"
+    data-i18n-title="system_settings_modal.socketio_path_desc">Socket.IO Path:</label>
+  <input type="text" id="socketio-path" value="/socket.io">
+
+  <label for="query-parameters" data-i18n="system_settings_modal.query_parameters"
+    data-i18n-title="system_settings_modal.query_parameters_desc">Query Parameters:</label>
+  <input type="text" id="query-parameters" placeholder='{"key": "value"}'>
+
+  <label for="transport" data-i18n="system_settings_modal.transport"
+    data-i18n-title="system_settings_modal.transport_desc">Transport:</label>
+  <select id="transport">
+    <option value="websocket">websocket</option>
+    <option value="polling">polling</option>
+  </select>
+</div>
+
+<!-- 日志管理 -->
+<details class="animated-details">
+  <summary><b data-i18n="system_settings_modal.log">日志</b></summary>
+  <div class="log-section">
+    <div class="log-filter-container">
+      <label for="socketio-logFilter" data-i18n="system_settings_modal.filter">筛选:</label>
+      <select id="socketio-logFilter">
+        <option value="all" data-i18n="system_settings_modal.all">全部</option>
+        <option value="success" data-i18n="system_settings_modal.success">成功</option>
+        <option value="warning" data-i18n="system_settings_modal.warning">警告</option>
+        <option value="fail" data-i18n="system_settings_modal.fail">失败</option>
+        <option value="info" data-i18n="system_settings_modal.info">信息</option>
+        <option value="source-client" data-i18n="system_settings_modal.source_client">客户端</option>
+        <option value="source-server" data-i18n="system_settings_modal.source_server">服务器</option>
+      </select>
+    </div>
+
+    <div class="log-table-wrapper">
+      <table id="socketio-logTable" class="data-table">
+        <thead>
+          <tr>
+            <th class="log-time" data-i18n="system_settings_modal.time">时间</th>
+            <th class="log-type" data-i18n="system_settings_modal.type">类型</th>
+            <th class="log-message" data-i18n="system_settings_modal.message">消息</th>
+            <th class="log-source" data-i18n="system_settings_modal.send_by">发送方</th>
+            <th class="log-request-id" data-i18n="system_settings_modal.request_id">请求 ID</th>
+            <th class="log-output-id" data-i18n="system_settings_modal.output_id">输出 ID</th>
+          </tr>
+        </thead>
+        <tbody id="socketio-logTableBody">
+          <!-- Log messages will be added here -->
+        </tbody>
+      </table>
+    </div>
+  </div>
+</details>
+<!-- 保存设置按钮 -->
+<button id="save-settings-btn" data-i18n="system_settings_modal.save_settings">Save Settings</button>

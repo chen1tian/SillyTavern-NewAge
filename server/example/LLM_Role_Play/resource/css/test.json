@@ -1,0 +1,17 @@
+{
+  "colors": {
+    "headerBg": "#874a4a",
+    "headerText": "#000000",
+    "mainBg": "#f0f0f0",
+    "mainText": "#333333",
+    "footerBg": "#ffffff",
+    "footerText": "#000000",
+    "containerBg": "#ffffff",
+    "buttonGroupBg": "#ffffff",
+    "doubleQuote": "#008000",
+    "singleQuote": "#0000ff"
+  },
+  "fonts": {
+    "main": "Segoe UI"
+  }
+}

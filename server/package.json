@@ -1,0 +1,21 @@
+{
+  "name": "socketio-test-server",
+  "version": "1.0.0",
+  "description": "",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.21.2",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "serve-static": "^1.16.2",
+    "socket.io": "^4.0.0",
+    "styled-components": "^6.1.15"
+  }
+}

@@ -1,0 +1,99 @@
+/* visual_novel.css */
+body {
+  background-color: #f8f9fa;
+}
+
+#game-container {
+  position: relative;
+  /* 重要: 用于定位 overlay */
+  max-width: 800px;
+  margin: 50px auto;
+  border: 1px solid #dee2e6;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+#character-name {
+  background-color: #343a40;
+  color: white;
+  padding: 8px 15px;
+  border-bottom: 1px solid #495057;
+}
+
+#dialogue-text {
+  background-color: white;
+  padding: 20px;
+  min-height: 150px;
+}
+
+/* 按钮组样式 */
+.button-container {
+  text-align: center;
+  /* 按钮居中 */
+  margin-top: 10px;
+}
+
+/* 输入框 overlay 样式 */
+.input-overlay {
+  position: fixed;
+  /* 固定定位 */
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.8);
+  /* 半透明黑色背景 */
+  z-index: 1000;
+  /* 层级高 */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.input-wrapper {
+  background-color: white;
+  padding: 20px;
+  border-radius: 10px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  width: 80%;
+  /* 或者你想要的宽度 */
+  max-width: 600px;
+  /* 最大宽度 */
+  text-align: center;
+  /* 内容居中 */
+}
+
+.input-wrapper textarea {
+  text-align: left;
+  /* 内容居中 */
+}
+
+/* 对话历史 overlay 样式 */
+.history-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.8);
+  z-index: 999;
+  /* 比输入框稍低 */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.history-wrapper {
+  background-color: white;
+  padding: 20px;
+  border-radius: 8px;
+  max-height: 80vh;
+  /*设置最大高度*/
+  overflow-y: auto;
+  /*添加滚动条*/
+  width: 80%;
+  /* 或者你想要的宽度 */
+  max-width: 600px;
+  /* 最大宽度 */
+}
