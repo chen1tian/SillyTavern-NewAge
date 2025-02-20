@@ -5,7 +5,7 @@ import * as pageSettings from "./pageSettings.js";
 import * as log from './log.js'; //  导入 log.js
 import { sendNonStreamMessage } from "./socket.js";
 import { updateUIText } from "./settings.js";
-import { applyTheme, updateThemeSelect, saveCustomTheme, loadCustomThemes } from './style.js';
+import { applyTheme, updateThemeSelect, saveCustomTheme, loadCustomThemes,getThemeObject,applyFrostedGlass } from './style.js';
 
 //  打开模态框
 function openModal(modalId) {
@@ -131,17 +131,16 @@ function setupThemeChangeHandler() {
           const themeSelect = document.getElementById('theme-select');
           if (themeSelect) {
             const theme = themeSelect.value;
-            applyTheme(theme); //  在这里切换主题
+            //applyTheme(theme); // 【移除】不再在这里直接应用主题
+            localStorage.setItem('selectedTheme', theme); // 【新增】只保存主题名称
+            applyTheme(theme);
           }
         }
       });
-      // 【新增】在模态框打开时，更新一次下拉列表
       updateThemeSelect();
     }
   }
 }
-
-
 
 //  处理页面设置保存 (事件委托)
 function setupPageSettingsHandlers() {
@@ -355,19 +354,69 @@ function handleOrientationChange() {
   }
 }
 
+// 【新增】 初始化颜色 input 控件的值
+async function initColorInputs() {
+  const selectedTheme = localStorage.getItem('selectedTheme') || 'default';
+  const theme = await getThemeObject(selectedTheme);
+  const colorInputs = document.querySelectorAll('#page-settings-modal input[type="color"]');
+
+  colorInputs.forEach(input => {
+    const elementId = input.id;
+    switch (elementId) {
+      case 'header-bg-color':
+        input.value = theme.colors.headerBg;
+        break;
+      case 'header-font-color':
+        input.value = theme.colors.headerText;
+        break;
+      case 'button-color':
+        input.value = theme.colors.buttonColor;
+        break;
+      case 'main-bg-color':
+        input.value = theme.colors.mainBg;
+        break;
+      case 'main-font-color':
+        input.value = theme.colors.mainText;
+        break;
+      case 'footer-bg-color':
+        input.value = theme.colors.footerBg;
+        break;
+      case 'footer-font-color':
+        input.value = theme.colors.footerText;
+        break;
+      case 'container-bg-color':
+        input.value = theme.colors.containerBg;
+        break;
+      case 'double-quote-color':
+        input.value = theme.colors.doubleQuote;
+        break;
+      case 'single-quote-color':
+        input.value = theme.colors.singleQuote;
+        break;
+    }
+  });
+}
 
 //【新增】
 function applyColor(input) {
   const elementId = input.id; // 获取 input 的 ID
   const color = input.value; // 获取 input 的值
 
-  // 根据 input 的 ID 设置对应元素的样式 (使用 data-* 属性)
+  // 根据 input 的 ID 设置对应元素的样式
   switch (elementId) {
     case 'header-bg-color':
       document.querySelector('header').style.backgroundColor = color;
       break;
     case 'header-font-color':
       document.querySelector('header').style.color = color;
+      document.querySelectorAll('header .button-group button').forEach(button => {
+        button.style.color = color;
+      });
+      break;
+    case 'button-color':
+      document.querySelectorAll('header .button-group button').forEach(button => {
+        button.style.backgroundColor = color;
+      });
       break;
     case 'main-bg-color':
       document.querySelector('main').style.backgroundColor = color;
@@ -384,14 +433,12 @@ function applyColor(input) {
     case 'container-bg-color':
       document.querySelector('.container').style.backgroundColor = color;
       break;
-    case 'button-group-bg-color':
-      document.querySelector('.button-group').style.backgroundColor = color;
-      break;
-    // 【新增】引号颜色
-    case 'double-quote-color':
-    case 'single-quote-color':
-      applyTheme(localStorage.getItem('selectedTheme')); //【新增】
-      break;
+    case 'double-quote-color': //【修改】
+        document.documentElement.style.setProperty('--double-quote-color', color);
+        break;
+    case 'single-quote-color'://【修改】
+        document.documentElement.style.setProperty('--single-quote-color', color);
+        break;
   }
 }
 // 【修改】保存自定义主题的逻辑 (不再需要 temporaryTheme, originalTheme)
@@ -540,8 +587,76 @@ function setupDeleteCustomThemeHandler() {
     deleteButton.addEventListener('click', deleteCustomTheme);
   }
 }
+
+//【新增】处理毛玻璃效果的复选框
+function setupFrostedGlassHandlers() {
+  const pageSettingsModal = document.getElementById('page-settings-modal');
+  if (!pageSettingsModal) return;
+
+  const frostedGlassEnabledInput = document.getElementById('frosted-glass-enabled');
+  const frostedGlassBgOnlyInput = document.getElementById('frosted-glass-bg-only');
+  const frostedGlassAdvancedDiv = document.getElementById('frosted-glass-advanced');
+    const frostedGlassOpacityInput = document.getElementById('frosted-glass-opacity');
+    const frostedGlassBlurInput = document.getElementById('frosted-glass-blur');
+    const frostedGlassOpacityValueSpan = document.getElementById('frosted-glass-opacity-value');
+
+
+  if (frostedGlassEnabledInput && frostedGlassAdvancedDiv) {
+    frostedGlassEnabledInput.addEventListener('change', () => {
+      frostedGlassAdvancedDiv.style.display = frostedGlassEnabledInput.checked ? 'block' : 'none';
+        applyFrostedGlass(); //【新增】
+    });
+  }
+    // 【新增】 不透明度滑块
+    if (frostedGlassOpacityInput && frostedGlassOpacityValueSpan) {
+      frostedGlassOpacityInput.addEventListener('input', () => {
+          frostedGlassOpacityValueSpan.textContent = frostedGlassOpacityInput.value;
+          applyFrostedGlass(); //【新增】
+      });
+    }
+
+    // 【新增】 模糊半径输入框
+    if (frostedGlassBlurInput) {
+      frostedGlassBlurInput.addEventListener('input', () => {
+        applyFrostedGlass(); //【新增】
+      });
+    }
+    if (frostedGlassBgOnlyInput) {
+      frostedGlassBgOnlyInput.addEventListener('change', () => {
+          applyFrostedGlass(); //【新增】
+      });
+    }
+
+    updateFrostedGlassInputs(); // 初始化
+}
+
+async function updateFrostedGlassInputs() {
+  const selectedTheme = localStorage.getItem('selectedTheme') || 'default';
+  const theme = await getThemeObject(selectedTheme);
+  const frostedGlassEnabledInput = document.getElementById('frosted-glass-enabled');
+  const frostedGlassBgOnlyInput = document.getElementById('frosted-glass-bg-only');
+  const frostedGlassAdvancedDiv = document.getElementById('frosted-glass-advanced');
+  const frostedGlassOpacityInput = document.getElementById('frosted-glass-opacity');
+  const frostedGlassBlurInput = document.getElementById('frosted-glass-blur');
+  const frostedGlassOpacityValueSpan = document.getElementById('frosted-glass-opacity-value');
+  if (frostedGlassEnabledInput) {
+      frostedGlassEnabledInput.checked = theme.frostedGlass.enabled;
+      frostedGlassAdvancedDiv.style.display = frostedGlassEnabledInput.checked ? 'block' : 'none';
+  }
+  if (frostedGlassBgOnlyInput) {
+      frostedGlassBgOnlyInput.checked = theme.frostedGlass.bgOnly;
+  }
+  if (frostedGlassOpacityInput) {
+      frostedGlassOpacityInput.value = theme.frostedGlass.opacity;
+      frostedGlassOpacityValueSpan.textContent = theme.frostedGlass.opacity;
+  }
+  if (frostedGlassBlurInput) {
+      frostedGlassBlurInput.value = theme.frostedGlass.blur;
+  }
+}
+
 // 初始化
-function initModalControls() {
+async function initModalControls() {
   //setupModalOpenCloseHandlers(); // 【修改】在这里调用
   setupSystemSettingsHandlers();
   setupLanguageChangeHandler();
@@ -553,7 +668,9 @@ function initModalControls() {
   setupMessageSend();
   setupThemeChangeHandler();
   setupSaveCustomThemeHandler(); //【新增】
-  setupDeleteCustomThemeHandler()
+  setupDeleteCustomThemeHandler();
+  setupFrostedGlassHandlers()
+  await initColorInputs();
 }
 
-export { initModalControls, openModal, closeModal, setupModalOpenCloseHandlers, };
+export { initModalControls, initColorInputs,openModal, closeModal, setupModalOpenCloseHandlers, };

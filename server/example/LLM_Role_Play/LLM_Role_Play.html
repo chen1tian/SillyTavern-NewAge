@@ -48,6 +48,11 @@
             <i class="fas fa-user-friends"></i>
             <span data-i18n="character_select">Character Select</span>
           </button>
+          <!-- 调试按钮 -->
+          <button id="debug-btn" data-i18n-title="debug"> 
+            <i class="fas fa-bug"></i>
+            <span data-i18n="debug">Debug</span>
+          </button>
         </div>
       </header>
       <main>
@@ -98,6 +103,11 @@
       </div>
     </div>
   
+    <!-- 调试模态框 -->
+    <div id="debug-modal" class="modal">
+      <div class="modal-content">
+        </div>
+    </div>
 
   <!--  Socket.IO 客户端库  -->
   <script src="/socket.io/socket.io.js"></script>

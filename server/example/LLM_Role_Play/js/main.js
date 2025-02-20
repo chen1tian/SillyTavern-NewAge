@@ -33,6 +33,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     { id: 'system-settings-modal', htmlFile: 'system_settings.html' },
     { id: 'page-settings-modal', htmlFile: 'page_settings.html' },
     { id: 'character-select-modal', htmlFile: 'character_select.html' },
+    { id: 'debug-modal', htmlFile: 'debug.html' }, // 新增调试模态框
   ];
 
   // 加载 HTML
