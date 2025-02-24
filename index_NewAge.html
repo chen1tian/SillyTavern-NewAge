@@ -5,9 +5,18 @@
       <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
     </div>
     <div class="inline-drawer-content">
+
+      <!-- 新增：登录界面 -->
+      <div id="login-form" class="login-section">
+        <label for="socketio-password">密码:</label>
+        <input type="password" id="socketio-password" class="text_pole">
+        <button id="socketio-loginBtn" class="menu_button">登录</button>
+        <div id="login-message"></div>
+      </div>
+
       <!-- 操作按钮 -->
       <div class="button-group">
-        <button id="socketio-connectBtn" class="menu_button">连接</button>
+        <button id="socketio-connectBtn" class="menu_button" disabled>连接</button>
         <button id="socketio-disconnectBtn" class="menu_button" disabled>断开</button>
         <button id="socketio-testBtn" class="menu_button" disabled>测试连接</button>
       </div>
@@ -16,19 +25,61 @@
       <details class="animated-details">
         <summary><b>设置</b></summary>
         <div class="settings-grid">
-          <label for="socketio-localPortInput">本地客户端端口:</label>
-          <input type="number" id="socketio-localPortInput" class="text_pole" disabled>
+          <label for="socketio-extensionName">扩展识别名字:</label>
+          <input type="text" id="socketio-extensionName" class="text_pole" placeholder="Unique Extension Name" readonly>
+
+          <label for="socketio-localPortInput">扩展端口:</label>
+          <input type="number" id="socketio-localPortInput" class="text_pole" readonly>
 
           <label for="socketio-serverPortInput">服务器端口:</label>
           <input type="number" id="socketio-serverPortInput" class="text_pole" value="4000">
 
           <label for="socketio-serverAddressInput">服务器地址:</label>
           <input type="text" id="socketio-serverAddressInput" class="text_pole" value="http://localhost">
+
+          <!-- 服务器房间管理 -->
+          <div class="server-room-management">
+            <label>服务器房间管理:</label>
+            <div class="room-actions">
+              <button id="socketio-refreshRoomsBtn" class="menu_button">刷新</button>
+            </div>
+            <div class="room-table-wrapper">
+              <table id="socketio-roomTable" class="data-table">
+                <thead>
+                  <tr>
+                    <th>房间名</th>
+                    <th>客户端</th>
+                    <th>操作</th> <!-- 新增：操作列 -->
+                  </tr>
+                </thead>
+                <tbody id="socketio-roomList">
+                  <!-- 房间列表将在这里动态生成 -->
+                </tbody>
+              </table>
+            </div>
+            <div id="room-details">
+              <!-- 房间详情 (客户端列表) -->
+            </div>
+          </div>
+
+          <!-- 客户端密钥管理 -->
+          <div class="client-key-management">
+            <label for="socketio-clientList">客户端:</label>
+            <select id="socketio-clientList" class="text_pole">
+              <!-- 客户端列表 -->
+            </select>
+            <div class="key-display">
+              <span id="socketio-clientKeyDisplay"></span>
+              <button id="socketio-copyKeyBtn" class="menu_button">复制密钥</button>
+            </div>
+            <button id="socketio-generateKeyBtn" class="menu_button">生成密钥</button>
+            <button id="socketio-removeKeyBtn" class="menu_button">删除密钥</button>
+          </div>
         </div>
+
         <div class="save-button-container">
           <button id="socketio-saveSettingsBtn" class="menu_button">保存</button>
         </div>
-
       </details>
 
       <!-- 可折叠的功能部分 -->
@@ -37,18 +88,18 @@
         <div class="function-section">
           <div class="message-handling-section" id="message-handling-options">
             <label title="启用/禁用默认的消息转发行为。
-      如果启用，则消息转发行为由预设中的“流式传输”开关的状态决定。
-      如果禁用，则可以单独配置流式和非流式转发。">
+        如果启用，则消息转发行为由预设中的“流式传输”开关的状态决定。
+        如果禁用，则可以单独配置流式和非流式转发。">
               <input type="checkbox" id="socketio-defaultForwarding" checked>
               <small class="checkName">默认转发行为</small>
             </label>
             <label title="启用/禁用 LLM 消息的流式转发。
-      流式转发会将每个生成的 token 分块发送到服务器。">
+        流式转发会将每个生成的 token 分块发送到服务器。">
               <input type="checkbox" id="socketio-enableStream">
               <small class="checkName">LLM 消息转发 (流式)</small>
             </label>
             <label title="启用/禁用 LLM 消息的非流式转发。
-      非流式转发会将整个生成的消息一次性发送到服务器。">
+        非流式转发会将整个生成的消息一次性发送到服务器。">
               <input type="checkbox" id="socketio-enableNonStream">
               <small class="checkName">LLM 消息转发 (非流式)</small>
             </label>
@@ -56,7 +107,7 @@
         </div>
       </details>
 
-      <!-- 可折叠的事件管理部分 (Log Table) -->
+      <!-- Log Table -->
       <details class="animated-details">
         <summary><b>日志</b></summary>
         <div class="log-section">
@@ -86,7 +137,7 @@
                 </tr>
               </thead>
               <tbody id="socketio-logTableBody">
-                <!-- Log messages will be added here -->
+                <!-- Log messages -->
               </tbody>
             </table>
           </div>

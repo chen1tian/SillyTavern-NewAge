@@ -1,9 +1,9 @@
 {
     "display_name": "SillyTavern-NewAge",
-    "loading_order": 9,
+    "loading_order": 99,
     "requires": [],
     "optional": [],
-    "js": "index.js",
+    "js": "index_NewAge.js",
     "css": "style.css",
     "author": "yourNameHere",
     "version": "1.0.0",

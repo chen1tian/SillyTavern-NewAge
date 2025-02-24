@@ -97,3 +97,118 @@ body {
   max-width: 600px;
   /* 最大宽度 */
 }
+
+/* 新增样式 */
+/* 登录界面样式 */
+.login-section {
+  margin-bottom: 10px;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+}
+
+.login-section label {
+  margin-right: 5px;
+}
+
+#login-message {
+  color: red;
+}
+
+/* 服务器房间管理样式 */
+.server-room-management {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+}
+
+.room-list {
+  margin-bottom: 10px;
+  padding: 5px;
+  border: 1px solid #eee;
+  border-radius: 3px;
+  /* max-height: 100px; */
+  /* 移除最大高度限制 */
+  /* overflow-y: auto; */
+  /* 移除滚动条 */
+}
+
+.room-actions {
+  display: flex;
+  gap: 5px;
+  margin-bottom: 5px;
+}
+
+#room-details {
+  margin-top: 10px;
+  padding: 5px;
+  border: 1px solid #eee;
+  border-radius: 3px;
+  min-height: 50px;
+}
+
+.client-key-management {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+}
+
+.key-display {
+  margin-top: 5px;
+  margin-bottom: 5px;
+  display: flex;
+  align-items: center;
+}
+
+#socketio-clientKeyDisplay {
+  flex-grow: 1;
+  padding: 5px;
+  border: 1px solid #eee;
+  border-radius: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-right: 5px;
+}
+
+/* 使设置在同一行 */
+.settings-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-gap: 10px;
+  align-items: center;
+}
+
+/* 新增：房间列表表格样式 */
+.room-table-wrapper {
+  overflow-x: auto;
+  /* 添加水平滚动条 */
+}
+
+#socketio-roomTable {
+  width: 100%;
+  /* 表格宽度 */
+  border-collapse: collapse;
+  /* 合并边框 */
+}
+
+#socketio-roomTable th,
+#socketio-roomTable td {
+  padding: 8px;
+  border: 1px solid #ddd;
+  text-align: left;
+}
+
+#socketio-roomTable th {
+  background-color: #f2f2f2;
+}
+
+#socketio-roomTable tbody tr:nth-child(even) {
+  background-color: #f9f9f9;
+}
+
+#socketio-roomTable tbody tr:hover {
+  background-color: #e9ecef;
+}
