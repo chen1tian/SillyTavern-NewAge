@@ -245,12 +245,12 @@ SillyTavern-NewAge/ (扩展根目录)
 
 ```mermaid
 graph TD
-    subgraph 客户端(index_NewAge.js)
+    subgraph 客户端
         A[用户输入密码] --> B(点击登录按钮)
         B --> C{发送 MSG_TYPE.LOGIN}
     end
 
-    subgraph 服务器(server.js)
+    subgraph 服务器
         C -- 密码 --> D{验证密码}
         D -- 密码正确 --> E[返回成功响应]
         D -- 密码错误 --> F[返回错误响应]
@@ -264,11 +264,11 @@ graph TD
     J -- 包含客户端信息 --> K(发送到服务器)
     K -.-> L{服务器验证}
 
-    subgraph 服务器(server.js)
+    subgraph 服务器
       L -- 验证通过 --> M[接收并存储客户端信息]
       L -- 验证失败 --> N[断开连接]
     end
-     subgraph 客户端(index_NewAge.js)
+     subgraph 客户端
         K --> O{发送 MSG_TYPE.GET_CLIENT_KEY}
         O -.-> P{接收响应}
         P -- 有密钥 --> Q[使用服务器返回的密钥]
@@ -278,7 +278,7 @@ graph TD
         S -- 生成失败 --> U[显示错误信息]
      end
 
-    subgraph 服务器(server.js)
+    subgraph 服务器
         O --> V{检查客户端密钥}
         V -- 有密钥 --> W[返回密钥]
         V -- 无密钥 --> X{接收 MSG_TYPE.GENERATE_CLIENT_KEY}
