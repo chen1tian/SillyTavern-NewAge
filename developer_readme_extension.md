@@ -257,7 +257,7 @@ graph TD
     end
 
     C -.-> G{接收响应}
-    subgraph 客户端(index_NewAge.js)
+    subgraph 客户端
     G -- 登录成功 --> H(隐藏登录表单, 显示其他UI)
     G -- 登录成功 --> I(调用 connectToServer)
     I --> J{创建 Socket.IO 连接}
