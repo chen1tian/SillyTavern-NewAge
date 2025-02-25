@@ -1,12 +1,17 @@
 // server/dist/Keys.js
 
 import fs from 'fs';
-import { join } from 'path';
 import { uuidv4 } from '../../lib/uuid/uuid.js';
 import bcrypt from 'bcrypt';
 
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
 const saltRounds = 10;
-const clientsPath = join(__dirname, '../../clients.json'); // 客户端密钥文件路径
+const clientsPath = join(__dirname, '../keys/clients.json'); // 客户端密钥文件路径
 let clientKeys = {}; // 在内存中缓存
 
 // 从文件加载客户端密钥
@@ -84,4 +89,5 @@ export {
   setClientRooms,
   getAllClientKeys,
   getClientKey,
+  clientKeys,
 };

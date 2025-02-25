@@ -22,12 +22,21 @@ import { registerIframeUtilHandler } from './dist/iframe_server/util.js';
 import { registerIframeVariableHandler } from './dist/iframe_server/variables.js';
 
 // 导入房间管理函数
-import { createRoom, deleteRoom, addClientToRoom, removeClientFromRoom, getRooms } from './dist/Rooms.js';
+import { addClientToRoom, removeClientFromRoom } from './dist/Rooms.js';
+//import { clientKeys } from './server/dist/Keys.js';
 
 const extensionName = 'SillyTavern-NewAge';
 const extensionFolderPath = `scripts/extensions/third-party/${extensionName}`;
 
-let socket = null;
+let socket = null; // 用于主要的连接 (认证, 获取初始信息)
+let tempMainSocket = null;
+let llmSocket = null; // 用于 LLM 请求/响应
+let functionCallSocket = null; // 用于 function_call
+let roomsSocket = null;
+let clientsSocket = null;
+let authSocket = null;
+let sillyTavernSocket = null; // 如果需要与 /sillytavern 命名空间交互
+
 let streamBuffer = [];
 let isStreaming = false;
 let logCounter = 0;
@@ -36,6 +45,241 @@ let logCounter = 0;
 const llmRequestQueue = [];
 const functionCallQueue = [];
 let isProcessingRequest = false; // 标志：是否有请求正在处理中
+
+let isRemembered = false;
+let clientId = generateClientId();  // 声明 clientId
+let clientDesc; //声明clientDesc
+let fullServerAddress = 'http://localhost:4000'; //声明 fullServerAddress
+
+/**
+ * @description 创建并配置 Socket.IO 连接
+ * @param {string} namespace - 命名空间
+ * @param {object} authData - 认证数据
+ * @param {boolean} [autoConnect=true] - 是否自动连接
+ * @returns {initSocket} - Socket.IO 连接实例
+ */
+function createSocket(namespace, authData, autoConnect = true) {
+  const initSocket = io(fullServerAddress + namespace, {
+    auth: authData,
+    clientId: clientId,
+    autoConnect: autoConnect,
+  });
+
+   // 通用错误处理
+  initSocket.on('connect_error', error => {
+    addLogMessage('fail', `[${namespace}] 连接错误: ${error}`, 'client');
+    console.error(`Socket.IO [${namespace}]: Connection error`, error);
+    toastr.error(`[${namespace}] 连接错误: ${error}`, 'Socket.IO');
+  });
+
+  initSocket.on('disconnect', reason => {
+    addLogMessage('warning', `[${namespace}] 与服务器断开连接: ${reason}`, 'client');
+    console.log(`Socket.IO [${namespace}]: Disconnected, reason: ${reason}`);
+    toastr.warning(`[${namespace}] 已断开连接: ${reason}`, 'Socket.IO');
+  });
+  return initSocket;
+}
+
+/**
+ * @description 断开所有 Socket.IO 连接
+ */
+function disconnectAllSockets() {
+    if (socket) {
+        socket.disconnect();
+        socket = null;
+    }
+    if (llmSocket) {
+        llmSocket.disconnect();
+        llmSocket = null;
+    }
+    if (functionCallSocket) {
+        functionCallSocket.disconnect();
+        functionCallSocket = null;
+    }
+    if (roomsSocket) {
+        roomsSocket.disconnect();
+        roomsSocket = null;
+    }
+    if(clientsSocket){
+        clientsSocket.disconnect();
+        clientsSocket = null;
+    }
+    // if (sillyTavernSocket) { // 如果有
+    //     sillyTavernSocket.disconnect();
+    //     sillyTavernSocket = null;
+    // }
+  updateButtonState(false); // 更新按钮状态
+  $('#socketio-testBtn').prop('disabled', true); // 禁用测试按钮
+}
+
+/**
+ * @description 处理登录点击事件 / Handles the login click event.
+ * @async
+ * @function onLoginClick
+ * @returns {Promise<void>}
+ */
+async function onLoginClick() {
+    const password = $('#socketio-password').val();
+    const rememberMe = $('#socketio-rememberMe').is(':checked');
+  
+    // 使用默认命名空间进行登录
+    const loginSocket = createSocket(NAMESPACES.AUTH, {
+      clientType: 'extension-Login',
+      clientId: clientId,
+      desc: clientDesc,
+      key: 'getKey'
+    }, false); // 不自动连接
+
+    loginSocket.connect(); // 手动连接
+
+    console.log('loginSocket', loginSocket);
+
+    loginSocket.emit(MSG_TYPE.LOGIN, { clientId , password }, (response) => {
+      if (response.success) {
+        $('#login-form').hide();
+        $('#login-message').text('').removeClass('error');
+        $('.button-group').show();
+        $('.animated-details').show();
+  
+        if (rememberMe) {
+
+          // 使用 function_call 命名空间
+          const rememberMeSocket = createSocket(NAMESPACES.FUNCTION_CALL, {
+            clientType: 'extension_FUNCTION_CALL',
+            clientId: clientId,
+            desc: clientDesc,
+          },false);
+
+        rememberMeSocket.connect(); // 手动连接
+          rememberMeSocket.emit(
+            MSG_TYPE.FUNCTION_CALL,
+            {
+              requestId: 'rememberMe',
+              target: 'server',
+              functionName: 'saveJsonToFile',
+              args: [`./settings/${clientId}-settings.json`, { Remember_me: true }],
+            },
+            response => {
+              if (response.success) {
+                console.log('"Remember_me" saved.');
+              } else {
+                console.error('Failed to save "Remember_me":', response.error);
+                toastr.error('Failed to save "Remember_me".', 'Error');
+              }
+              rememberMeSocket.disconnect();
+            },
+          );
+
+        }
+        connectToServer(); // 登录成功后自动连接
+        loginSocket.disconnect(); // 登录成功，断开登录用的 socket
+
+      } else {
+        $('#login-message')
+          .text(response.message || 'Login failed.')
+          .addClass('error');
+        loginSocket.disconnect();
+      }
+    });
+}
+
+/**
+ * @description 检查是否记住登录 / Checks if login is remembered.
+ * @async
+ * @function checkRememberMe
+ * @returns {Promise<void>}
+ */
+async function checkRememberMe() {
+  // 使用 function_call 命名空间
+  const tempSocket = createSocket(
+    NAMESPACES.FUNCTION_CALL,
+    {
+      clientType: 'extension-checkRememberMe',
+      clientId: clientId,
+      desc: clientDesc,
+    },
+    false,
+  ); // 不自动连接
+
+  tempSocket.connect(); // 手动连接
+
+  tempSocket.on('connect', () => {
+    console.log('checking Remember_me.');
+    tempSocket.emit(
+      MSG_TYPE.FUNCTION_CALL,
+      {
+        requestId: 'checkRememberMe',
+        target: 'server',
+        functionName: 'readJsonFromFile',
+        args: [`./settings/${clientId}-settings.json`],
+      },
+      response => {
+        if (response.success) {
+          const settings = response.result;
+          //console.log('settings:', settings);
+          if (settings.result.Remember_me === true) {
+            // 记住登录，自动连接
+            //console.log('settings.Remember_me:', settings.result.Remember_me);
+            isRemembered = true;
+            $('#login-form').hide();
+            $('.button-group').show();
+            $('.animated-details').show();
+            connectToServer(); //
+          } else {
+            // 未记住登录，显示登录界面
+            $('#login-form').show();
+            $('.button-group').hide();
+            $('.animated-details').hide();
+          }
+        } else {
+          console.error('Failed to check "Remember_me":', response.error);
+          toastr.error('Failed to check "Remember_me".', 'Error');
+          // 显示登录界面
+          $('#login-form').show();
+          $('.button-group').hide();
+          $('.animated-details').hide();
+        }
+        tempSocket.disconnect(); // 断开临时连接
+      },
+    );
+  });
+
+  // 错误处理（可选）
+  tempSocket.on(MSG_TYPE.ERROR, error => {
+    console.error('临时连接错误:', error);
+    toastr.error('临时连接错误', 'Error');
+    $('#login-form').show();
+    $('.button-group').hide();
+    $('.animated-details').hide();
+    tempSocket.disconnect(); // 确保断开
+  });
+}
+
+/**
+ * @description 处理退出登录点击事件 / Handles the logout click event.
+ * @function onLogoutClick
+ * @returns {void}
+ */
+function onLogoutClick() {
+  disconnectAllSockets(); // 断开所有连接
+
+  // 使用 function_call 命名空间
+  const forgetMeSocket = createSocket(
+    NAMESPACES.FUNCTION_CALL,
+    {
+      clientType: 'extension_FUNCTION_CALL', //或者用其他的类型
+      clientId: clientId,
+      desc: clientDesc,
+    },
+    false,
+  ); // 不自动连接
+
+  // 显示登录界面，隐藏按钮组和设置
+  $('#login-form').show();
+  $('.button-group').hide();
+  $('.animated-details').hide();
+  $('#socketio-testBtn').prop('disabled', true);
+}
 
 /**
  * @description 添加日志消息到表格 / Adds a log message to the table.
@@ -120,8 +364,7 @@ function filterLog() {
  * @returns {void}
  */
 function updateButtonState(isConnected) {
-    $('#socketio-connectBtn').prop('disabled', isConnected);
-    $('#socketio-disconnectBtn').prop('disabled', !isConnected);
+    $('#socketio-logoutBtn').prop('disabled', !isConnected);
 }
 
 /**
@@ -131,19 +374,27 @@ function updateButtonState(isConnected) {
  * @returns {void}
  */
 function updateClientList(clients) {
-    const clientListSelect = $('#socketio-clientList');
-    clientListSelect.empty(); // 清空现有选项 / Clear existing options
-    clientListSelect.append($('<option>', { value: '', text: '-- Select Client --' }));
+  const clientListSelect = $('#socketio-clientList');
+  clientListSelect.empty();
+  clientListSelect.append($('<option>', { value: '', text: '-- Select Client --' }));
+
+  if (!clientsSocket) {
+    console.warn('clientsSocket not connected.');
+    return;
+  }
+  // 使用 clients 命名空间
+  clientsSocket.emit('getClientList', {}, clients => {
     if (clients) {
-        clients.forEach(client => {
-            clientListSelect.append(
-                $('<option>', {
-                    value: client.id, // 使用客户端 ID 作为 value / Use client ID as value
-                    text: client.id, // 显示客户端 ID / Display client ID
-                }),
-            );
-        });
+      clients.forEach(client => {
+        clientListSelect.append(
+          $('<option>', {
+            value: client.id,
+            text: client.id,
+          }),
+        );
+      });
     }
+  });
 }
 
 /**
@@ -153,7 +404,9 @@ function updateClientList(clients) {
  */
 function getSillyTavernPort() {
     //SillyTavern的端口储存在这里
-    return $('#server_port').val();
+    //console.log('Location port:', window.location.port);
+    return window.location.port;
+    
 }
 
 /**
@@ -173,49 +426,270 @@ function generateClientId() {
  * @returns {Promise<void>}
  */
 async function connectToServer() {
-    const serverAddress = $('#socketio-serverAddressInput').val();
-    const serverPort = $('#socketio-serverPortInput').val();
-    const fullServerAddress = `${serverAddress}:${serverPort}`;
+  const serverAddress = $('#socketio-serverAddressInput').val();
+  const serverPort = $('#socketio-serverPortInput').val();
+  fullServerAddress = `${serverAddress}:${serverPort}`;
 
-    clientId = generateClientId(); // 生成客户端 ID
-    const clientDesc = `本客户端是扩展端，运行于 ${getSillyTavernPort()} 端口`; // 设置客户端描述
+  clientId = generateClientId();
+  clientDesc = `本客户端是扩展端，运行于 ${getSillyTavernPort()} 端口`;
+  
+  const sillyTavernMasterKey = null;
 
-    socket = io(fullServerAddress + NAMESPACES.GENERAL, {
-        auth: {
-            clientType: 'extension',
-            clientId: clientId,
-            desc: clientDesc,
-            // key:  // 密钥稍后设置
-        }
-    });
-    globalThis.socket = socket;
+  // 获取或生成客户端密钥
 
+  // 临时主连接 (用于认证, 获取初始信息)
+  tempMainSocket = createSocket(NAMESPACES.AUTH, {
+    clientType: 'extension-noKey',
+    clientId: clientId,
+    desc: clientDesc,
+    key: 'getKey',
+  });
 
-    // 先监听连接建立事件，再发送主密钥
-    socket.on('connect', async () => {
-        addLogMessage('success', '已连接到服务器', 'client');
-        updateButtonState(true);
-        $('#socketio-testBtn').prop('disabled', false);
-        console.log('Socket.IO: Connected');
-        toastr.success('Socket.IO: 已连接', 'Socket.IO');
+  tempMainSocket.connect();
 
-        // 获取或生成客户端密钥
-        const key = await getOrCreateClientKey();
-        // 设置 auth 数据 (如果还没有)
-        socket.auth = {
-            clientType: 'extension',
-            clientId: clientId,
-            key: key,
-            desc: clientDesc,
-        };
-
-        // 连接成功后，发送主密钥 (如果存在)
-        sendMasterKey();
-        refreshRoomList();
-        updateClientList();
+  tempMainSocket.on('connect', async () => {
+    tempMainSocket.emit(MSG_TYPE.IDENTIFY_SILLYTAVERN, { clientId }, response => {
+      if (response.status === 'ok' && response.key) {
+        sillyTavernMasterKey = response.key;
+        console.log('sillyTavernMasterKey:', sillyTavernMasterKey);
+      } else {
+        console.error('Failed to get sillyTavernMasterKey:', response.message);
+        toastr.error('Failed to get sillyTavernMasterKey.', 'Error');
+        resolve(null);
+      }
     });
 
-    setupSocketListeners(); // 设置其他 Socket.IO 事件监听器
+    console.log('tempMainSocket:', tempMainSocket);
+  })
+
+  
+
+  socket = createSocket(NAMESPACES.LLM, {
+    clientType: 'extension',
+    clientId: clientId,
+    desc: clientDesc,
+    key: sillyTavernMasterKey,
+  });
+
+  socket.connect();
+
+  globalThis.socket = socket; // 暴露给全局 (可选)
+
+  //const key = await getOrCreateClientKey();
+
+  console.log('socket:', socket);
+
+  tempMainSocket.disconnect();
+
+  socket.on('connect', async () => {
+    addLogMessage('success', '已连接到服务器', 'client');
+    updateButtonState(true);
+    $('#socketio-testBtn').prop('disabled', false);
+    console.log('Socket.IO: Connected');
+    toastr.success('Socket.IO: 已连接', 'Socket.IO');
+
+    // 连接成功后，发送主密钥 (如果存在)
+    //sendMasterKey();
+
+    setupLlmSocketListeners();
+
+    // 创建其他命名空间的连接
+    createNamespaceConnections();
+
+    // 加载设置 (在主连接建立后)
+    loadSettings();
+
+    // 刷新房间和客户端列表
+    refreshRoomList();
+    updateClientList();
+  });
+
+  // setupSocketListeners(); // 不需要了，在各个命名空间的连接中设置监听器
+
+  // 其他事件监听 (可选, 如果需要在默认命名空间监听其他事件)
+  socket.on('message', data => {
+    /* ... */
+    if (data.data === 'Yes,connection is fine.') {
+      toastr.success('连接活跃!', '测试连接');
+    }
+  });
+}
+
+// 在主连接建立后创建其他命名空间的连接
+function createNamespaceConnections() {
+  // AUTH 命名空间
+  authSocket = createSocket(NAMESPACES.AUTH, {
+    clientType: 'extension_auth', // 可以使用不同的 clientType
+    clientId: clientId,
+    desc: clientDesc,
+    key: socket.auth.key, // 使用主连接的密钥
+  });
+  setupLlmSocketListeners(); // 设置 LLM 相关的监听器
+
+  // Function Call 命名空间
+  functionCallSocket = createSocket(NAMESPACES.FUNCTION_CALL, {
+    clientType: 'extension_function_call',
+    clientId: clientId,
+    desc: clientDesc,
+    key: socket.auth.key,
+  });
+  setupFunctionCallSocketListeners();
+
+  // Rooms 命名空间
+  roomsSocket = createSocket(NAMESPACES.ROOMS, {
+    clientType: 'extension_rooms',
+    clientId: clientId,
+    desc: clientDesc,
+    key: socket.auth.key,
+  });
+  setupRoomsSocketListeners();
+
+  // Clients 命名空间
+  clientsSocket = createSocket(NAMESPACES.CLIENTS, {
+    clientType: 'extension_clients',
+    clientId: clientId,
+    desc: clientDesc,
+    key: socket.auth.key,
+  });
+  setupClientsSocketListeners();
+
+  // 如果需要与 /sillytavern 命名空间交互，创建 sillyTavernSocket
+  // sillyTavernSocket = createSocket(NAMESPACES.SILLY_TAVERN, { /* ... */ });
+  // setupSillyTavernSocketListeners(); // 设置 SillyTavern 相关的监听器
+}
+
+function setupLlmSocketListeners() {
+  if (!llmSocket) return;
+
+  llmSocket.on(MSG_TYPE.LLM_REQUEST, handleLlmRequest);
+  llmSocket.on(MSG_TYPE.LLM_RESPONSE, data => {
+    /* ... */
+    addLogMessage('info', `Received LLM response: ${data.message}`, 'server', data.requestId);
+    console.log('Received LLM response:', data);
+  });
+}
+
+function setupAuthSocketListeners() {
+  if (!llmSocket) return;
+
+  socket.on(MSG_TYPE.LLM_REQUEST, handleLlmRequest);
+  socket.on(MSG_TYPE.LLM_RESPONSE, data => {
+    /* ... */
+    addLogMessage('info', `Received LLM response: ${data.message}`, 'from:', data.requestId);
+    console.log('Received LLM response:', data);
+  });
+}
+
+function setupFunctionCallSocketListeners() {
+  if (!functionCallSocket) return;
+
+  functionCallSocket.on(MSG_TYPE.FUNCTION_CALL, (data, callback) => {
+    if (data.target === clientId) {
+      handleFunctionCallFromClient(data, callback); // 确保定义了 handleFunctionCallFromClient
+    }
+  });
+}
+
+function setupRoomsSocketListeners() {
+  if (!roomsSocket) return;
+
+  roomsSocket.on(MSG_TYPE.GET_ROOMS, (data, callback) => {
+    if (clientId !== sillyTavernSocketId) {
+      if (callback) callback({ status: 'error', message: 'Unauthorized' });
+      return;
+    }
+    try {
+      const rooms = Rooms.getAllRooms();
+      if (callback) callback(rooms);
+    } catch (error) {
+      if (callback) callback({ status: 'error', message: error.message });
+    }
+  });
+
+  // 其他房间相关的事件监听...
+  // 为 "Details" 按钮添加点击事件
+  roomsSocket.on('getClientsInRoom', (roomName, callback) => {
+    try {
+      const clients = io.sockets.adapter.rooms.get(roomName);
+      const clientIds = clients ? Array.from(clients).filter(id => id !== undefined) : [];
+
+      // 获取客户端的描述信息
+      const clientInfo = clientIds.map(id => {
+        const desc = Rooms.getClientDescription(id); // 从 Rooms.js 获取描述
+        return { id, description: desc };
+      });
+
+      if (callback) callback(clientInfo);
+    } catch (error) {
+      if (callback) callback({ status: 'error', message: error.message });
+    }
+  });
+}
+
+function setupClientsSocketListeners() {
+  if (!clientsSocket) return;
+
+  // clientsSocket.on(...) //添加客户端相关的监听器
+  clientsSocket.on(MSG_TYPE.GENERATE_CLIENT_KEY, async (data, callback) => {
+    if (clientId !== sillyTavernSocketId) {
+      if (callback) callback({ status: 'error', message: 'Unauthorized' });
+      return;
+    }
+    const targetClientId = data.clientId;
+    try {
+      const key = await Keys.generateAndStoreClientKey(targetClientId);
+      if (callback) callback({ status: 'ok', key: key });
+    } catch (error) {
+      if (callback) callback({ status: 'error', message: error.message });
+    }
+  });
+
+  clientsSocket.on(MSG_TYPE.REMOVE_CLIENT_KEY, (data, callback) => {
+    if (clientId !== sillyTavernSocketId) {
+      if (callback) callback({ status: 'error', message: 'Unauthorized' });
+      return;
+    }
+    const targetClientId = data.clientId;
+    try {
+      Keys.removeClientKey(targetClientId);
+      if (callback) callback({ status: 'ok' });
+    } catch (error) {
+      if (callback) callback({ status: 'error', message: error.message });
+    }
+  });
+
+  clientsSocket.on('getClientList', (data, callback) => {
+    if (clientId !== sillyTavernSocketId) {
+      if (callback) callback({ status: 'error', message: 'Unauthorized' });
+      return;
+    }
+    try {
+      const clients = [];
+      for (const id in Keys.getAllClientKeys()) {
+        // 使用 Keys.getAllClientKeys()
+        clients.push({
+          id,
+          description: Rooms.getClientDescription(id), // 获取客户端描述
+          // rooms: Keys.getClientRooms(id), // 如果需要，可以包含客户端所属房间
+        });
+      }
+      if (callback) callback(clients);
+    } catch (error) {
+      if (callback) callback({ status: 'error', message: error.message });
+    }
+  });
+}
+
+// function setupSillyTavernSocketListeners() { // 如果需要
+//     if (!sillyTavernSocket) return;
+//     // sillyTavernSocket.on(...) // 添加与 SillyTavern 相关的监听器
+// }
+
+function onDisconnectClick() {
+  // if (socket) { // 改为断开所有连接
+  //     socket.disconnect();
+  // }
+  disconnectAllSockets();
 }
 
 /**
@@ -225,29 +699,38 @@ async function connectToServer() {
  * @returns {Promise<string>} 客户端密钥 / The client key.
  */
 async function getOrCreateClientKey() {
-    return new Promise((resolve) => {
-        // 尝试从服务器获取密钥
-        socket.emit(MSG_TYPE.GET_CLIENT_KEY, { clientId }, (response) => {
-            if (response.status === 'ok' && response.key) {
-                // 服务器返回了密钥
-                console.log("从服务器获取密钥")
-                resolve(response.key);
-            } else {
-                // 服务器没有密钥，生成一个新的
-                console.log("未找到密钥,正在生成")
-                socket.emit(MSG_TYPE.GENERATE_CLIENT_KEY, { clientId }, (response) => {
-                    if (response.status === 'ok' && response.key) {
-                        console.log("生成密钥")
-                        resolve(response.key);
-                    } else {
-                        console.error('Failed to generate client key:', response.message);
-                        toastr.error('Failed to generate client key.', 'Error');
-                        resolve(null); // 或者抛出错误
-                    }
-                });
-            }
+  return new Promise(resolve => {
+    // 使用 clients 命名空间
+    const keySocket = createSocket(
+      NAMESPACES.CLIENTS,{
+        clientType: 'extension',
+        clientId: clientId,
+        key: socket.auth.key,
+        desc: clientDesc,
+      },
+      false,
+    );
+
+    keySocket.connect(); // 手动连接
+    //console.log('keySocket auth', keySocket);
+    keySocket.emit(MSG_TYPE.GET_CLIENT_KEY, { clientId }, response => {
+      if (response.status === 'ok' && response.key) {
+        resolve(response.key);
+      } else {
+        keySocket.emit(MSG_TYPE.GENERATE_CLIENT_KEY, { clientId }, response => {
+          if (response.status === 'ok' && response.key) {
+            resolve(response.key);
+          } else {
+            console.error('Failed to generate client key:', response.message);
+            toastr.error('Failed to generate client key.', 'Error');
+            resolve(null);
+          }
         });
+      }
+      console.log('response.key', response);
+      keySocket.disconnect(); // 获取或生成密钥后断开连接
     });
+  });
 }
 
 /**
@@ -256,157 +739,24 @@ async function getOrCreateClientKey() {
  * @returns {void}
  */
 function sendMasterKey() {
-    if (serverSettings.sillyTavernMasterKey) {
-        socket.emit(MSG_TYPE.IDENTIFY_SILLYTAVERN, { key: serverSettings.sillyTavernMasterKey });
-    }
-}
+  if (serverSettings.sillyTavernMasterKey) {
+    // 使用 auth 命名空间
+    const masterKeySocket = createSocket(
+      NAMESPACES.AUTH,
+      {
+        clientType: 'extension_master_key',
+        clientId: clientId,
+        desc: clientDesc,
+        key: socket.auth.key, // 使用主连接的密钥
+      },
+      false,
+    );
+    masterKeySocket.connect();
 
-/**
- * @description 设置 Socket.IO 事件监听器 / Sets up Socket.IO event listeners.
- * @function setupSocketListeners
- * @returns {void}
- */
-function setupSocketListeners() {
-    // 消息处理
-    socket.on('message', data => {
-        // data: { type: number, data: string, source: string, requestId: string, outputId: string }
-        if (data.type === MSG_TYPE.NON_STREAM) {
-            addLogMessage('info', `服务器: ${data.data}`, data.source, data.requestId, data.outputId);
-            console.log('Socket.IO: Message received', data);
-
-            if (data.data === 'Yes,connection is fine.') {
-                toastr.success('连接活跃!', '测试连接');
-            }
-        }
+    masterKeySocket.emit(MSG_TYPE.IDENTIFY_SILLYTAVERN, { key: serverSettings.sillyTavernMasterKey }, response => {
+      masterKeySocket.disconnect();
     });
-
-    // 流式传输事件
-    socket.on(STREAM_EVENTS.START_RESPONSE, data => {
-        // data: { type: number, streamId: string, outputId: string, numStreams: number, source: string, requestId: string }
-        if (data.type === MSG_TYPE.STREAM_START) {
-            streamBuffer = [];
-            isStreaming = true;
-            addLogMessage('info', '开始接收流...', data.source, data.requestId, data.outputId);
-            console.log('Socket.IO: Stream started (response)', data);
-        }
-    });
-
-    socket.on(STREAM_EVENTS.DATA_FIRST_RESPONSE, data => {
-        // data: { type: number, streamId: string, outputId: string, chunkIndex: number, data: string, source: string, requestId: string }
-        if (data.type === MSG_TYPE.STREAM_DATA_FIRST) {
-            addLogMessage('info', `接收到流数据（首块）...`, data.source, data.requestId, data.outputId);
-            console.log('Socket.IO: First chunk received (response)', data);
-            streamBuffer.push(data.data);
-        }
-    });
-
-    socket.on(STREAM_EVENTS.DATA_MIDDLE_RESPONSE, data => {
-        // data: { type: number, streamId: string, outputId: string, chunkIndex: number, data: string, source: string, requestId: string }
-        if (data.type === MSG_TYPE.STREAM_DATA_MIDDLE) {
-            addLogMessage('info', `接收到流数据（中块）...`, data.source, data.requestId, data.outputId);
-            console.log('Socket.IO: Middle chunk received (response)', data);
-            streamBuffer.push(data.data);
-        }
-    });
-
-    socket.on(STREAM_EVENTS.DATA_LAST_RESPONSE, data => {
-        // data: { type: number, streamId: string, outputId: string, chunkIndex: number, data: string, source: string, requestId: string }
-        if (data.type === MSG_TYPE.STREAM_DATA_LAST) {
-            addLogMessage('info', `接收到流数据（末块）...`, data.source, data.requestId, data.outputId);
-            console.log('Socket.IO: Last chunk received (response)', data);
-            streamBuffer.push(data.data);
-        }
-    });
-
-    socket.on(STREAM_EVENTS.DATA_RETRY_RESPONSE, data => {
-        // data: { type: number, streamId: string, outputId: string, chunkIndex: number, data: string, source: string, requestId: string }
-        if (data.type === MSG_TYPE.STREAM_DATA_RETRY) {
-            addLogMessage('info', `接收到流数据（重试）...`, data.source, data.requestId, data.outputId);
-            console.log('Socket.IO: Stream retry (response)', data);
-            streamBuffer.push(data.data);
-        }
-    });
-
-    socket.on(STREAM_EVENTS.DATA_FAILED_RESPONSE, data => {
-        // data: { type: number, streamId: string, outputId: string, source: string, requestId: string, error: any }
-        if (data.type === MSG_TYPE.STREAM_DATA_FAILED) {
-            addLogMessage('fail', '流错误', data.source, data.requestId, data.outputId);
-            console.log('Socket.IO: Stream error (response)', data);
-            isStreaming = false;
-        }
-    });
-    // 为了打印完整消息用
-    let lastToastrOutputId = null;
-    socket.on(STREAM_EVENTS.END_RESPONSE, data => {
-        // data: { type: number, streamId: string, outputId: string, source: string, requestId: string }
-        if (data.type === MSG_TYPE.STREAM_END) {
-            if (isStreaming) {
-                isStreaming = false;
-                const fullMessage = streamBuffer.join('');
-                addLogMessage('success', `流内容: ${fullMessage}`, data.source, data.requestId, data.outputId);
-                console.log('Socket.IO: Stream ended, Content:', fullMessage);
-
-                if (data.outputId !== lastToastrOutputId) {
-                    lastToastrOutputId = data.outputId;
-                }
-
-                streamBuffer = [];
-            }
-        }
-    });
-
-    // LLM 请求/响应
-    socket.on(MSG_TYPE.LLM_REQUEST, handleLlmRequest);
-    // data: { clientId: string, requestId: string, message: string, target: string }
-
-    socket.on(MSG_TYPE.LLM_RESPONSE, data => {
-        // data: { requestId: string, message: string, target: string }
-        addLogMessage('info', `Received LLM response: ${data.message}`, 'server', data.requestId);
-        console.log('Received LLM response:', data);
-    });
-
-    socket.on(MSG_TYPE.FUNCTION_CALL, (data, callback) => {
-      // 检查 target 是否为当前扩展的 clientId
-      if (data.target === clientId) {
-        handleFunctionCallFromClient(data, callback);
-      }
-    });
-
-    // 连接/断开连接/错误
-    socket.on('disconnect', reason => {
-        addLogMessage('warning', `与服务器断开连接: ${reason}`, 'client');
-        updateButtonState(false);
-        $('#socketio-testBtn').prop('disabled', true);
-        socket = null;
-        globalThis.socket = null;
-        console.log('Socket.IO: Disconnected');
-        toastr.warning(`已断开连接: ${reason}`, 'Socket.IO');
-    });
-
-    socket.on('connect_error', error => {
-        addLogMessage('fail', `连接错误: ${error}`, 'client');
-        updateButtonState(false);
-        console.error('Socket.IO: Connection error', error);
-        toastr.error(`连接错误: ${error}`, 'Socket.IO');
-    });
-
-    socket.on('reconnect_failed', () => {
-        addLogMessage('fail', '重连失败', 'client');
-        updateButtonState(false);
-        console.error('Socket.IO: Reconnect failed');
-        toastr.error('重连失败', 'Socket.IO');
-    });
-}
-
-/**
- * @description 断开与 Socket.IO 服务器的连接 / Disconnects from the Socket.IO server.
- * @function onDisconnectClick
- * @returns {void}
- */
-function onDisconnectClick() {
-    if (socket) {
-        socket.disconnect();
-    }
+  }
 }
 
 /**
@@ -492,49 +842,52 @@ async function testGenerate() {
 
 // 新增：处理请求队列
 async function processRequest() {
-    if (isProcessingRequest) {
-        return; // 如果有请求正在处理，则直接返回
-    }
+  if (isProcessingRequest) {
+    return; // 如果有请求正在处理，则直接返回 / If a request is already being processed, return directly
+  }
 
-    if (llmRequestQueue.length > 0) {
-        isProcessingRequest = true;
-        const request = llmRequestQueue.shift();
-        try {
-            // 调用 iframeGenerate 生成文本
-            const generatedText = await iframeGenerate(request.generateConfig);
-            // 在这里处理生成结果，例如发送给服务器
-            if (!globalThis.isLLMStreamOutput) {
-                import('./lib/non_stream.js').then(module => {
-                    module.sendNonStreamMessage(socket, generatedText, request.requestId, request.outputId);
-                });
-            }
-        } catch (error) {
-            console.error('生成文本时出错:', error);
-            addLogMessage('fail', `生成文本时出错: ${error}`, 'client', request.requestId);
+  if (llmRequestQueue.length > 0) {
+    isProcessingRequest = true;
+    const request = llmRequestQueue.shift(); // 从队列中取出第一个请求 / Take the first request from the queue
 
-            if (socket && socket.connected) {
-                socket.emit(MSG_TYPE.ERROR, {
-                    type: MSG_TYPE.ERROR,
-                    message: '生成文本时出错',
-                    error: error.message,
-                    requestId: request.requestId,
-                });
-            }
-        } finally {
-            isProcessingRequest = false;
-            processRequest(); // 递归调用，处理下一个请求
-        }
-    } else if (functionCallQueue.length > 0) {
-        isProcessingRequest = true;
-        const { data, callback } = functionCallQueue.shift();
-        // data: { functionName: string, args: any[] }
-        // 向服务器发送 FUNCTION_CALL 请求
-        socket.emit(MSG_TYPE.FUNCTION_CALL, data, (response) => {
-            callback(response); // 将服务器的响应传递给回调函数
-            isProcessingRequest = false;
-            processRequest(); // 递归调用，处理下一个请求
+    try {
+      // 调用 iframeGenerate 生成文本
+      const generatedText = await iframeGenerate(request.generateConfig);
+
+      // 在这里处理生成结果，例如发送给服务器
+      if (!globalThis.isLLMStreamOutput) {
+        // 使用 llmSocket 发送非流式消息
+        import('./lib/non_stream.js').then(module => {
+          //module.sendNonStreamMessage(llmSocket, generatedText, request.requestId, request.outputId);
         });
+      }
+    } catch (error) {
+      console.error('生成文本时出错:', error);
+      addLogMessage('fail', `生成文本时出错: ${error}`, 'client', request.requestId);
+
+      if (llmSocket && llmSocket.connected) {
+        // 使用 llmSocket 发送错误消息
+        llmSocket.emit(MSG_TYPE.ERROR, {
+          type: MSG_TYPE.ERROR,
+          message: '生成文本时出错',
+          error: error.message,
+          requestId: request.requestId,
+        });
+      }
+    } finally {
+      isProcessingRequest = false;
+      processRequest(); // 递归调用，处理下一个请求
     }
+  } else if (functionCallQueue.length > 0) {
+    isProcessingRequest = true;
+    const { data, callback } = functionCallQueue.shift();
+    // 使用 functionCallSocket
+    functionCallSocket.emit(MSG_TYPE.FUNCTION_CALL, data, response => {
+      callback(response);
+      isProcessingRequest = false;
+      processRequest();
+    });
+  }
 }
 
 /**
@@ -548,18 +901,18 @@ async function processRequest() {
  * @returns {Promise<void>}
  */
 async function handleLlmRequest(data) {
-    addLogMessage('info', `Received LLM request: ${data.message}`, 'server', data.requestId);
-    toastr.info(`Received LLM request: ${data.message}`, 'LLM Request');
-    console.log('Received LLM request:', data);
+  addLogMessage('info', `Received LLM request: ${data.message}`, 'server', data.requestId);
+  toastr.info(`Received LLM request: ${data.message}`, 'LLM Request');
+  console.log('Received LLM request:', data);
 
-    const generateConfig = {
-        user_input: data.message,
-        stream: globalThis.isLLMStreamOutput,
-    };
+  const generateConfig = {
+    user_input: data.message,
+    stream: globalThis.isLLMStreamOutput,
+  };
 
-    // 将请求添加到队列
-    llmRequestQueue.push({ generateConfig, requestId: data.requestId, outputId: data.outputId });
-    processRequest(); // 尝试处理请求
+  // 将请求添加到队列 / Add the request to the queue
+  llmRequestQueue.push({ generateConfig, requestId: data.requestId, outputId: data.outputId });
+  processRequest(); // 尝试处理请求 / Try to process the request
 }
 
 eventSource.on('js_generation_ended', generatedText => {
@@ -580,14 +933,16 @@ eventSource.on('generation_ended', messageId => {
  * @returns {Promise<void>}
  */
 async function refreshRoomList() {
-  if (!socket) {
-    console.warn('Socket not connected.');
+  if (!roomsSocket) {
+    console.warn('roomsSocket not connected.');
     return;
   }
 
   try {
-    const rooms = await getRooms(socket);
-    displayRoomList(rooms);
+    // const rooms = await getRooms(roomsSocket); // 使用 roomsSocket
+    roomsSocket.emit(MSG_TYPE.GET_ROOMS, {}, rooms => {
+      displayRoomList(rooms);
+    });
   } catch (error) {
     console.error('Failed to get rooms:', error);
   }
@@ -714,49 +1069,6 @@ async function displayRoomDetails(roomName) {
     detailsDiv.append(ul);
 }
 
-/**
- * @description 处理登录点击事件 / Handles the login click event.
- * @async
- * @function onLoginClick
- * @returns {Promise<void>}
- */
-async function onLoginClick() {
-    const password = $('#socketio-password').val();
-
-    // 向服务器发送登录请求
-    socket.emit(MSG_TYPE.LOGIN, { password }, (response) => {
-        if (response.success) {
-            $('#login-form').hide();
-            $('#login-message').text('').removeClass('error');
-            $('.button-group').show();
-            $('.animated-details').show();
-
-            connectToServer(); // 登录成功后自动连接
-        } else {
-            $('#login-message').text(response.message || 'Login failed.').addClass('error');
-        }
-    });
-}
-
-// 新增: 登录函数
-async function onLoginClick() {
-    const password = $('#socketio-password').val();
-
-    // 向服务器发送登录请求
-    socket.emit(MSG_TYPE.LOGIN, { password }, (response) => {
-        if (response.success) {
-            $('#login-form').hide();
-            $('#login-message').text('').removeClass('error');
-            $('.button-group').show();
-            $('.animated-details').show();
-
-            connectToServer(); // 登录成功后自动连接
-        } else {
-            $('#login-message').text(response.message || 'Login failed.').addClass('error');
-        }
-    });
-}
-
 // 新增: 生成并显示客户端密钥
 async function generateAndDisplayClientKey() {
   const selectedClientId = $('#socketio-clientList').val();
@@ -764,8 +1076,8 @@ async function generateAndDisplayClientKey() {
     toastr.warning('请选择一个客户端', '错误');
     return;
   }
-
-  socket.emit(MSG_TYPE.GENERATE_CLIENT_KEY, { clientId: selectedClientId }, response => {
+  // 使用 clients 命名空间
+  clientsSocket.emit(MSG_TYPE.GENERATE_CLIENT_KEY, { clientId: selectedClientId }, response => {
     if (response.status === 'ok') {
       $('#socketio-clientKeyDisplay').text(response.key).attr('title', response.key);
     } else {
@@ -798,7 +1110,8 @@ function removeClientKey() {
     return;
   }
 
-  socket.emit(MSG_TYPE.REMOVE_CLIENT_KEY, { clientId: selectedClientId }, response => {
+  // 使用 clients 命名空间
+  clientsSocket.emit(MSG_TYPE.REMOVE_CLIENT_KEY, { clientId: selectedClientId }, response => {
     if (response.status === 'ok') {
       toastr.success('客户端密钥已移除', '成功');
       $('#socketio-clientKeyDisplay').text(''); // 清空显示
@@ -810,23 +1123,24 @@ function removeClientKey() {
 }
 
 async function loadSettings() {
-  // 使用 function_call 从服务器获取设置
-  socket.emit(
+  // 使用 function_call 命名空间
+  functionCallSocket.emit(
     MSG_TYPE.FUNCTION_CALL,
     {
-      requestId: 'loadSettings', // 可以使用固定的 requestId
+      requestId: 'loadSettings',
+      target: 'server',
       functionName: 'readJsonFromFile',
-      args: ['../server_settings.json'], // 文件路径 (相对于 server.js)
+      args: [`./settings/${clientId}-settings.json`],
     },
     response => {
       if (response.success) {
         const settings = response.result;
         console.log('Loaded settings:', settings);
 
-        // 将设置填充到 UI 元素
-        $('#socketio-serverPortInput').val(settings.serverPort || '4000'); // 设置默认值
+        // Fill the UI elements with the loaded settings
+        $('#socketio-serverPortInput').val(settings.serverPort || '4000');
         $('#socketio-serverAddressInput').val(settings.serverAddress || 'http://localhost');
-        // 其他设置...
+        // ... other settings ...
       } else {
         console.error('Failed to load settings:', response.error);
         toastr.error('Failed to load settings.', 'Error');
@@ -840,6 +1154,7 @@ async function saveSettings() {
   const settings = {
     serverPort: $('#socketio-serverPortInput').val(),
     serverAddress: $('#socketio-serverAddressInput').val(),
+    // ... 其他设置 ...
     reconnectAttempts: 10,
     reconnectDelay: 1000,
     timeout: 5000,
@@ -849,13 +1164,14 @@ async function saveSettings() {
     transport: 'websocket',
   };
 
-  // 使用 function_call 将设置保存到服务器
-  socket.emit(
+  // 使用 function_call 命名空间
+  functionCallSocket.emit(
     MSG_TYPE.FUNCTION_CALL,
     {
-      requestId: 'saveSettings', // 可以使用固定的 requestId
+      requestId: 'saveSettings',
+      target: 'server',
       functionName: 'saveJsonToFile',
-      args: ['./server_settings.json', settings], // 文件路径 (相对于 server.js)
+      args: [`./settings/${clientId}-settings.json`, settings],
     },
     response => {
       if (response.success) {
@@ -933,7 +1249,6 @@ jQuery(async () => {
   // 监听 message 事件，并调用 handleIframe
   window.addEventListener('message', handleIframe);
 
-  $('#socketio-disconnectBtn').on('click', onDisconnectClick);
   $('#socketio-testBtn').on('click', onTestClick);
   $('#socketio-saveSettingsBtn').on('click', saveSettings);
 
@@ -942,8 +1257,11 @@ jQuery(async () => {
   $('#socketio-refreshRoomsBtn').on('click', refreshRoomList);
 
   $('#socketio-loginBtn').on('click', onLoginClick);
+  $('#socketio-logoutBtn').on('click', onLogoutClick);
 
   // testGenerate();
+
+  checkRememberMe(); // 检查是否记住登录
 
   $('#socketio-defaultForwarding').on('change', function () {
     updateForwardingOptionsVisibility();
@@ -1069,6 +1387,5 @@ jQuery(async () => {
   $('#socketio-extensionName').val(generateClientId()).attr('readonly', true);
   $('#socketio-localPortInput').val(getSillyTavernPort()).attr('readonly', true);
 
-  // 加载设置
-  loadSettings();
+  
 });

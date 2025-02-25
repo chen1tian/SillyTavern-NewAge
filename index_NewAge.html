@@ -10,14 +10,17 @@
       <div id="login-form" class="login-section">
         <label for="socketio-password">密码:</label>
         <input type="password" id="socketio-password" class="text_pole">
+        <label>
+          <input type="checkbox" id="socketio-rememberMe">
+          <small class="checkName">记住我</small>
+        </label>
         <button id="socketio-loginBtn" class="menu_button">登录</button>
         <div id="login-message"></div>
       </div>
 
       <!-- 操作按钮 -->
       <div class="button-group">
-        <button id="socketio-connectBtn" class="menu_button" disabled>连接</button>
-        <button id="socketio-disconnectBtn" class="menu_button" disabled>断开</button>
+        <button id="socketio-logoutBtn" class="menu_button" disabled>退出登录</button>
         <button id="socketio-testBtn" class="menu_button" disabled>测试连接</button>
       </div>
 

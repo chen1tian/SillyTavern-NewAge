@@ -44,14 +44,14 @@ function deleteRoom(socket, roomName) {
 
 /**
  * 将客户端添加到房间
- * @param {import('socket.io-client').Socket} socket - Socket.IO 客户端实例
+ * @param {import('socket.io-client').Socket} roomsSocket - Socket.IO 客户端实例
  * @param {string} clientId - 要添加的客户端 ID
  * @param {string} roomName - 要加入的房间名称
  * @returns {Promise<boolean>} - 添加成功返回 true，失败返回 false
  */
 function addClientToRoom(socket, clientId, roomName) {
   return new Promise(resolve => {
-    socket.emit(MSG_TYPE.ADD_CLIENT_TO_ROOM, { clientId, roomName }, response => {
+    roomsSocket.emit(MSG_TYPE.ADD_CLIENT_TO_ROOM, { clientId, roomName }, response => {
       if (response.status === 'ok') {
         console.log(`Client ${clientId} added to room: ${roomName}`);
         resolve(true);
@@ -73,7 +73,7 @@ function addClientToRoom(socket, clientId, roomName) {
 function removeClientFromRoom(socket, clientId, roomName) {
   return new Promise(resolve => {
     const data = clientId ? { clientId, roomName } : { roomName };
-    socket.emit(MSG_TYPE.REMOVE_CLIENT_FROM_ROOM, data, response => {
+    roomsSocket.emit(MSG_TYPE.REMOVE_CLIENT_FROM_ROOM, data, response => {
       if (response.status === 'ok') {
         console.log(
           clientId ? `Client ${clientId} removed from room: ${roomName}` : `Client removed from room: ${roomName}`,
@@ -92,7 +92,7 @@ function removeClientFromRoom(socket, clientId, roomName) {
  * @param { import('socket.io-client').Socket } socket - Socket.IO 客户端实例
  * @returns {Promise<string[]>}  - 返回房间列表
  */
-function getRooms(socket) {
+function getClientsInRoom(socket) {
   return new Promise(resolve => {
     socket.emit('getRooms', null, rooms => {
       console.log(`get rooms: ${rooms}`);
@@ -101,4 +101,4 @@ function getRooms(socket) {
   });
 }
 
-export { createRoom, deleteRoom, addClientToRoom, removeClientFromRoom, getRooms };
+export { createRoom, deleteRoom, addClientToRoom, removeClientFromRoom, getClientsInRoom };
