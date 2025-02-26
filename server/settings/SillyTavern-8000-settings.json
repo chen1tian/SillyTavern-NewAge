@@ -1,15 +1,6 @@
 {
-  "serverPort": 4000,
-  "serverAddress": "http://localhost",
-  "reconnectAttempts": 5,
-  "reconnectDelay": 1000,
-  "timeout": 5000,
-  "autoConnect": true,
-  "socketIOPath": "/socket.io",
-  "queryParameters": {},
-  "transport": "websocket",
-  "extensionRooms": {},
-  "clientKeys": {},
+  "clientId": "SillyTavern-8000",
   "Remember_me": false,
-  "sillyTavernMasterKey": "123456"
+  "sillyTavernMasterKey": "123456",
+  "isTrust": true
 }

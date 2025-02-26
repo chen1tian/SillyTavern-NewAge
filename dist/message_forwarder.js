@@ -15,8 +15,9 @@ function getMessageType() {
 
 let previousLLMData = '';
 let currentOutputId = null;
-let currentRequestId = null;
+let requestId = null;
 let accumulatedStreamData = '';
+let theLatestRequestId = null;
 
 /**
  * @description 获取当前的 outputId / Gets the current output ID.
@@ -28,23 +29,23 @@ function getCurrentOutputId() {
 }
 
 /**
- * @description 设置新的 outputId 和 requestId / Sets a new output ID and request ID.
+ * @description 设置新的 outputId / Sets a new output ID and request ID.
  * @function setNewOutputId
  * @returns {void}
  */
 function setNewOutputId() {
   currentOutputId = uuidv4();
-  currentRequestId = uuidv4();
+  //requestId = uuidv4();
 }
 
 /**
- * @description 重置 outputId 和 requestId / Resets the output ID and request ID.
+ * @description 重置 outputId / Resets the output ID.
  * @function resetOutputId
  * @returns {void}
  */
 function resetOutputId() {
   currentOutputId = null;
-  currentRequestId = null;
+  //requestId = null;
 }
 
 /**
@@ -61,9 +62,10 @@ function resetPreviousLLMData() {
  * @function handleNonStreamMessage
  * @param {number} messageId - 消息 ID / The message ID.
  * @param {number} messageType - 消息类型 / The message type.
+ * @param {string} requestId - 请求ID.
  * @returns {void}
  */
-function handleNonStreamMessage(messageId, messageType) {
+function handleNonStreamMessage(messageId, messageType, requestId) {
   const { chat } = SillyTavern.getContext();
   const message = chat[messageId];
 
@@ -71,9 +73,9 @@ function handleNonStreamMessage(messageId, messageType) {
     if (globalThis.socket && globalThis.socket.connected) {
       const extensionName = $('#socketio-extensionName').val();
       if (isNonStreamForwardingEnabled) {
-        sendNonStreamMessage(globalThis.socket, message.mes, null, null, extensionName);
+        sendNonStreamMessage(globalThis.socket, message.mes, null, null, extensionName, requestId);
       } else if (isStreamForwardingEnabled) {
-        startStreamFromNonStream(globalThis.socket, message.mes, 5, extensionName);
+        startStreamFromNonStream(globalThis.socket, message.mes, 5, extensionName, requestId);
       }
     } else {
       console.warn('LLM消息转发失败，原因：socket未连接或不存在');
@@ -86,9 +88,10 @@ function handleNonStreamMessage(messageId, messageType) {
  * @function handleStreamToken
  * @param {string} data - 接收到的 token 数据 / The received token data.
  * @param {number} messageType - 消息类型 / The message type.
+ * @param {string} requestId - 请求ID
  * @returns {void}
  */
-function handleStreamToken(data, messageType) {
+function handleStreamToken(data, messageType, requestId) {
   if (messageType === MSG_TYPE.STREAM && isStreamForwardingEnabled) {
     const llmStreamData = String(data);
 
@@ -100,7 +103,14 @@ function handleStreamToken(data, messageType) {
         return;
       }
       const extensionName = $('#socketio-extensionName').val();
-      startStreamFromStream(globalThis.socket, llmStreamData, currentOutputId, previousLLMData.length, extensionName);
+      startStreamFromStream(
+        globalThis.socket,
+        llmStreamData,
+        currentOutputId,
+        previousLLMData.length,
+        extensionName,
+        requestId,
+      );
       previousLLMData = llmStreamData;
     } else {
       console.warn('Socket未连接');
@@ -117,13 +127,15 @@ function handleStreamToken(data, messageType) {
  * @param {string} newData - 新的流数据 / The new stream data.
  * @param {string} outputId - 输出 ID / The output ID.
  * @param {number} previousLength - 之前数据的长度 / The length of the previous data.
- * @param {string} extensionName - 扩展名称
+ * @param {string} requestId - 请求ID
  * @returns {void}
  */
-function startStreamFromStream(socket, newData, outputId, previousLength, extensionName) {
+function startStreamFromStream(socket, newData, outputId, previousLength, extensionName, requestId) {
   const streamId = uuidv4(); // 每个 token 都有一个新的 streamId
   let chunk = newData.substring(previousLength);
   const numStreams = 5;
+
+  //const extensionName = $('#socketio-extensionName').val();  //已经在外部传入
 
   if (previousLength === 0) {
     chunk = chunk.replace(/^[\n\s]+/g, '');
@@ -131,11 +143,12 @@ function startStreamFromStream(socket, newData, outputId, previousLength, extens
 
   socket.emit(STREAM_EVENTS.START, {
     type: MSG_TYPE.STREAM_START,
+    clientId: extensionName,
     streamId: streamId,
     outputId: outputId,
     numStreams: numStreams,
     source: extensionName, // 使用扩展名称
-    requestId: currentRequestId,
+    requestId: requestId,
     target: 'server', // 消息目标设置为服务器
   });
 
@@ -163,10 +176,11 @@ function startStreamFromStream(socket, newData, outputId, previousLength, extens
       type: dataType,
       streamId: streamId,
       outputId: outputId,
+      clientId: extensionName,
       chunkIndex: i,
       data: chunkData,
       source: extensionName, // 使用扩展名称
-      requestId: currentRequestId,
+      requestId: requestId,
       target: 'server', // 消息目标设置为服务器
     });
   }
@@ -175,8 +189,9 @@ function startStreamFromStream(socket, newData, outputId, previousLength, extens
     type: MSG_TYPE.STREAM_END,
     streamId: streamId,
     outputId: outputId,
+    clientId: extensionName,
     source: extensionName, // 使用扩展名称
-    requestId: currentRequestId,
+    requestId: requestId,
     target: 'server', // 消息目标设置为服务器
   });
 }
@@ -187,19 +202,22 @@ function startStreamFromStream(socket, newData, outputId, previousLength, extens
  * @param {import('socket.io').Socket} socket - Socket.IO Socket 实例 / Socket.IO Socket instance.
  * @param {string} message - 非流式消息 / The non-stream message.
  * @param {number} numStreams - 分块数量 / The number of streams to divide the message into.
- * @param {string} extensionName - 扩展名称
+ * @param {string} requestId - 请求ID
  * @returns {void}
  */
-function startStreamFromNonStream(socket, message, numStreams, extensionName) {
+function startStreamFromNonStream(socket, message, numStreams, extensionName, requestId) {
   const streamId = uuidv4();
   const chunkSize = Math.ceil(message.length / numStreams);
   const outputId = uuidv4();
-  const requestId = uuidv4();
+  //const requestId = uuidv4();
+
+  //const extensionName = $('#socketio-extensionName').val(); // 已经在外部传入
 
   socket.emit(STREAM_EVENTS.START, {
     type: MSG_TYPE.STREAM_START,
     streamId: streamId,
     outputId: outputId,
+    clientId: extensionName,
     numStreams: numStreams,
     source: extensionName, // 使用扩展名称
     requestId: requestId,
@@ -228,6 +246,7 @@ function startStreamFromNonStream(socket, message, numStreams, extensionName) {
       type: dataType,
       streamId: streamId,
       outputId: outputId,
+      clientId: extensionName,
       chunkIndex: i,
       data: chunk,
       source: extensionName, // 使用扩展名称
@@ -240,6 +259,7 @@ function startStreamFromNonStream(socket, message, numStreams, extensionName) {
     type: MSG_TYPE.STREAM_END,
     streamId: streamId,
     outputId: outputId,
+    clientId: extensionName,
     source: extensionName, // 使用扩展名称
     requestId: requestId,
     target: 'server', // 消息目标设置为服务器
@@ -250,10 +270,12 @@ function startStreamFromNonStream(socket, message, numStreams, extensionName) {
  * @description 累积流式数据 / Accumulates stream data.
  * @function accumulateStreamData
  * @param {string} data - 要累积的数据 / The data to accumulate.
+ * @param {string} latestRequestId - 最新的请求ID
  * @returns {void}
  */
-function accumulateStreamData(data) {
+function accumulateStreamData(data, latestRequestId) {
   accumulatedStreamData += String(data);
+  theLatestRequestId = latestRequestId;
 }
 
 /**
@@ -263,9 +285,7 @@ function accumulateStreamData(data) {
  */
 function sendAccumulatedData() {
   if (accumulatedStreamData && globalThis.socket && globalThis.socket.connected) {
-    const extensionName = $('#socketio-extensionName').val();
-    //这里直接调用了sendNonStreamMessage，这个函数内部会生成requestId
-    sendNonStreamMessage(globalThis.socket, accumulatedStreamData, null, null, extensionName);
+    sendNonStreamMessage(globalThis.socket, accumulatedStreamData, theLatestRequestId, null);
   }
   accumulatedStreamData = '';
 }

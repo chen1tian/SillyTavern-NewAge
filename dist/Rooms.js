@@ -3,7 +3,7 @@
 import { MSG_TYPE } from '../lib/constants.js'; // 假设 constants.js 在同一目录下
 
 /**
- * 创建房间
+ * 创建房间(暂不使用)
  * @param {import('socket.io-client').Socket} socket - Socket.IO 客户端实例
  * @param {string} roomName - 要创建的房间名称
  * @returns {Promise<boolean>} - 创建成功返回 true，失败返回 false
@@ -23,7 +23,7 @@ function createRoom(socket, roomName) {
 }
 
 /**
- * 删除房间
+ * 删除房间(暂不使用)
  * @param {import('socket.io-client').Socket} socket - Socket.IO 客户端实例
  * @param {string} roomName - 要删除的房间名称
  * @returns {Promise<boolean>} - 删除成功返回 true，失败返回 false

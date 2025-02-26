@@ -1,18 +1,5 @@
 {
-  "reconnectAttempts": 10,
-  "reconnectDelay": 1000,
-  "timeout": 5000,
-  "autoConnect": true,
-  "socketIOPath": "/socket.io",
-  "queryParameters": {},
-  "transport": "websocket",
-  "language": "zh",
-  "serverAddress": "",
-  "language-select": "zh",
-  "server-address": "",
-  "reconnect-attempts": 10,
-  "reconnect-delay": 1000,
-  "auto-connect": true,
-  "socketio-path": "/socket.io",
-  "query-parameters": ""
+  "clientId": "SillyTavern-8000",
+  "Remember_me": false,
+  "isTrust": true
 }

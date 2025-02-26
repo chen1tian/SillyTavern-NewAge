@@ -1,11 +1,13 @@
 {
   "serverPort": 4000,
   "serverAddress": "http://localhost",
-  "reconnectAttempts": 10,
+  "reconnectAttempts": 5,
   "reconnectDelay": 1000,
   "timeout": 5000,
   "autoConnect": true,
   "socketIOPath": "/socket.io",
   "queryParameters": {},
-  "transport": "websocket"
+  "transport": "websocket",
+  "extensionRooms": {},
+  "clientKeys": {}
 }

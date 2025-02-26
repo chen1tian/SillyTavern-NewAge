@@ -11,6 +11,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@sap_oss/node-socketio-stream": "^1.0.8",
     "bcryptjs": "^3.0.2",
     "express": "^4.21.2",
     "react": "^19.0.0",

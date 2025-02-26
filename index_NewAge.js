@@ -779,7 +779,8 @@ function onTestClick() {
  * @returns {void}
  */
 function handleStreamToken(data) {
-    messageForwarder.handleStreamToken(data, messageForwarder.getMessageType());
+    const latestRequestId = llmRequestQueue.at(-1).requestId;
+    messageForwarder.handleStreamToken(data, messageForwarder.getMessageType(), latestRequestId);
 }
 
 /**
@@ -852,15 +853,9 @@ async function processRequest() {
 
     try {
       // 调用 iframeGenerate 生成文本
-      const generatedText = await iframeGenerate(request.generateConfig);
-
-      // 在这里处理生成结果，例如发送给服务器
-      if (!globalThis.isLLMStreamOutput) {
-        // 使用 llmSocket 发送非流式消息
-        import('./lib/non_stream.js').then(module => {
-          //module.sendNonStreamMessage(llmSocket, generatedText, request.requestId, request.outputId);
-        });
-      }
+      await iframeGenerate(request.generateConfig);
+      
+      //生成的文本会通过事件监听器自动进行处理，无需在此进行处理
     } catch (error) {
       console.error('生成文本时出错:', error);
       addLogMessage('fail', `生成文本时出错: ${error}`, 'client', request.requestId);
@@ -1329,24 +1324,30 @@ jQuery(async () => {
 
   updateForwardingOptionsVisibility();
 
-  const extensionName = $('#socketio-extensionName').val();
+  let latestRequestId = null;
 
   eventSource.on(event_types.STREAM_TOKEN_RECEIVED, data => {
     if (messageForwarder.isStreamForwardingEnabled) {
-      messageForwarder.handleStreamToken(data, messageForwarder.getMessageType(), extensionName); // 传入 extensionName
+      latestRequestId = llmRequestQueue.at(-1).requestId;
+      messageForwarder.handleStreamToken(data, messageForwarder.getMessageType(), latestRequestId); 
     } else if (messageForwarder.isNonStreamForwardingEnabled) {
-      messageForwarder.accumulateStreamData(data);
+      messageForwarder.accumulateStreamData(data, latestRequestId);
     }
   });
 
   eventSource.on(event_types.MESSAGE_RECEIVED, messageId => {
     if (!globalThis.isLLMStreamOutput) {
-      messageForwarder.handleNonStreamMessage(messageId, messageForwarder.getMessageType(), extensionName); // 传入 extensionName
+      latestRequestId = llmRequestQueue.at(-1).requestId;
+      messageForwarder.handleNonStreamMessage(
+        messageId,
+        messageForwarder.getMessageType(),
+        latestRequestId,
+      ); 
     }
   });
 
   let generationStartedHandled = false;
-
+  
   eventSource.on(event_types.GENERATION_STARTED, () => {
     if (!generationStartedHandled) {
       messageForwarder.setNewOutputId();
@@ -1358,18 +1359,15 @@ jQuery(async () => {
   eventSource.on(event_types.GENERATION_ENDED, () => {
     messageForwarder.resetOutputId();
     messageForwarder.resetPreviousLLMData();
-    messageForwarder.sendAccumulatedData();
     generationStartedHandled = false;
   });
 
   eventSource.on(event_types.GENERATION_STOPPED, () => {
     messageForwarder.resetOutputId();
     messageForwarder.resetPreviousLLMData();
-    messageForwarder.sendAccumulatedData();
     generationStartedHandled = false;
   });
 
-  eventSource.on(event_types.STREAM_TOKEN_RECEIVED, handleStreamToken);
   eventSource.on('js_generation_ended', generatedText => {
     console.log('生成结果:', generatedText);
   });

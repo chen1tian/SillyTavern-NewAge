@@ -45,15 +45,19 @@ let serverSettings = {
   extensionRooms: {}, // 初始化为空对象
   clientKeys: {}, //新增：初始化
   Remember_me: false,
-  sillyTavernMasterKey: null, //新增：初始化
+  sillyTavernPassword: {}
 };
 
+let trustedSillyTaverns = new Set();
+
+let trustedClients = new Set(); 
+
 /**
- * @description 从文件加载服务器设置 / Loads server settings from a file.
+ * @description 从文件加载服务器设置，自动设置可信客户端/SillyTavern，并确保密码已哈希 / Loads server settings, auto-sets trusted clients/SillyTaverns, and ensures passwords are hashed.
  * @function loadServerSettings
  * @returns {void}
  */
-function loadServerSettings() {
+async function loadServerSettings() { // 改为 async 函数
   try {
     const settingsData = fs.readFileSync(join(__dirname, './settings/server_settings.json'), 'utf-8');
     serverSettings = { ...serverSettings, ...JSON.parse(settingsData) };
@@ -61,6 +65,79 @@ function loadServerSettings() {
   } catch (error) {
     console.log('No settings file found or error loading settings. Using default settings.');
     fs.writeFileSync(join(__dirname, './settings/server_settings.json'), JSON.stringify(serverSettings, null, 2), 'utf-8');
+  }
+
+  // 自动设置可信客户端/SillyTavern
+  try {
+      const settingsDir = join(__dirname, './settings');
+      const files = fs.readdirSync(settingsDir);
+
+      for (const file of files) {
+        if (file === 'server_settings.json') {
+          continue; // 跳过服务器设置文件
+        }
+
+        if (!file.endsWith('.json')) {
+            continue; // 跳过非 JSON 文件
+        }
+
+        try {
+          const filePath = join(settingsDir, file);
+          const fileData = fs.readFileSync(filePath, 'utf-8');
+          const jsonData = JSON.parse(fileData);
+          if (jsonData.hasOwnProperty('clientId') && jsonData.hasOwnProperty('isTrust')) {
+            const { clientId, isTrust } = jsonData;
+
+            if (isTrust) {
+              if (clientId.startsWith('SillyTavern')) {
+                trustedSillyTaverns.add(clientId);
+                console.log(`Added trusted SillyTavern: ${clientId}`);
+              } else {
+                trustedClients.add(clientId);
+                console.log(`Added trusted client: ${clientId}`);
+              }
+            }
+          }else {
+              console.warn(`Skipping file ${file} due to missing clientId or isTrust property.`);
+          }
+        } catch (parseError) {
+          console.error(`Error parsing JSON in file ${file}:`, parseError);
+        }
+      }
+    } catch (readDirError) {
+      console.error('Error reading settings directory:', readDirError);
+    }
+
+  // 检查和哈希 SillyTavern 密码
+  if (serverSettings.sillyTavernPassword) {
+    let passwordsChanged = false; // 标记密码是否被修改
+
+    for (const clientId in serverSettings.sillyTavernPassword) {
+      if (serverSettings.sillyTavernPassword.hasOwnProperty(clientId)) {
+        let passwordEntry = serverSettings.sillyTavernPassword[clientId];
+
+        // 检查密码是否已经被哈希 (通过检查是否是字符串且以 $ 开头，这是一个简单的约定)
+        if (typeof passwordEntry === 'string' && !passwordEntry.startsWith('$')) {
+            // 没有哈希，进行哈希
+            const hashedPassword = await bcrypt.hash(passwordEntry, saltRounds);
+            serverSettings.sillyTavernPassword[clientId] = hashedPassword; //直接存储
+            passwordsChanged = true;
+            console.log(`Hashed password for SillyTavern client: ${clientId}`);
+
+        } else if (typeof passwordEntry === 'object' && passwordEntry !== null && passwordEntry.hasOwnProperty('hashed') && passwordEntry.hashed === false) {
+          // 兼容旧版本
+          const hashedPassword = await bcrypt.hash(passwordEntry.password, saltRounds);
+          serverSettings.sillyTavernPassword[clientId] = hashedPassword; //直接存储
+          passwordsChanged = true;
+          console.log(`Hashed password for SillyTavern client: ${clientId}`);
+        }
+      }
+    }
+
+    // 如果密码被修改，保存到文件
+    if (passwordsChanged) {
+      saveServerSettings(serverSettings);
+    }
   }
 }
 
@@ -96,19 +173,29 @@ function reinitializeSocketIO(newSettings) {
 }
 
 let requestQueue = [];
-let sillyTavernSocketId = null;
-let isSillyTavernConnected = false;
+
 
 /**
  * @description 处理 LLM 请求 / Processes the LLM request.
  * @function processLLMRequest
+ * @param {string} target - 目标 SillyTavern 实例的 clientId / Target SillyTavern client ID.
+ * @param {object} request - 请求对象 / Request object.
  * @returns {void}
  */
-function processLLMRequest() {
-  if (sillyTavernSocketId && isSillyTavernConnected && requestQueue.length > 0) {
-    const request = requestQueue.shift();
-    io.to(sillyTavernSocketId).emit(MSG_TYPE.LLM_REQUEST, request);
-    console.log(`Forwarding LLM request to SillyTavern: ${request.requestId}`);
+function processLLMRequest(target, request) {
+  if (trustedSillyTaverns.has(target)) {
+    io.of(NAMESPACES.SILLY_TAVERN).to(target).emit(MSG_TYPE.LLM_REQUEST, request);
+    console.log(`Forwarding LLM request to SillyTavern: ${target}`);
+  } else {
+    console.warn(`Target SillyTavern not found: ${target}`);
+    // 可以选择向请求的发起者发送错误消息
+    if (request.clientId) { // 确保请求包含 clientId
+        io.of(NAMESPACES.AUTH).to(request.clientId).emit(MSG_TYPE.ERROR, {  // 假设错误消息发送回 /auth
+          type: MSG_TYPE.ERROR,
+          message: `Target SillyTavern not found: ${target}`,
+          requestId: request.requestId, // 包含请求 ID
+      });
+    }
   }
 }
 
@@ -191,8 +278,13 @@ async function handleFunctionCallRequest(socket, data, callback) {
  * @returns {Promise<boolean>} - 如果密钥有效，则返回 true；否则返回 false / True if the key is valid, false otherwise.
  */
 async function isValidKey(clientId, key) {
-  if (clientId === sillyTavernSocketId) {
-    return await bcrypt.compare(key, serverSettings.sillyTavernMasterKey);
+  if (trustedSillyTaverns.has(clientId)) {
+    // 如果是 SillyTavern，从 Keys 中获取并验证
+    const storedKey = Keys.getClientKey(clientId);
+    if (!storedKey) {
+      return false; // 没有找到密钥
+    }
+    return await bcrypt.compare(key, storedKey);
   } else {
     return await Keys.isValidClientKey(clientId, key);
   }
@@ -210,12 +302,12 @@ function canSendMessage(senderClientId, targetRoom) {
     return true;
   }
 
-  if (senderClientId === sillyTavernSocketId) {
+  if (trustedSillyTaverns.has(senderClientId)) {
     return true;
   }
 
-  const senderData = Keys.clientKeys[senderClientId]; // 通过Keys获取
-  if (senderData && senderData.rooms.includes(targetRoom)) {
+  // 使用 Rooms.isClientInRoom() 检查客户端是否在房间内
+  if (Rooms.isClientInRoom(senderClientId, targetRoom)) {
     return true;
   }
 
@@ -278,7 +370,10 @@ io.on('connection', async (socket) => {
 
 // /auth 命名空间
 const authNsp = io.of(NAMESPACES.AUTH);
-authNsp.on('connection', async (socket) => {
+
+
+
+authNsp.on('connection', async socket => {
   const clientType = socket.handshake.auth.clientType;
   const clientId = socket.handshake.auth.clientId;
   const clientKey = socket.handshake.auth.key;
@@ -287,61 +382,91 @@ authNsp.on('connection', async (socket) => {
   // 用于存储重连间隔的映射，键为 clientId
   const reconnectIntervals = {};
 
+  // 新增：临时房间映射
+  const tempRooms = {};
+
   if (clientKey === 'getKey') {
-    
+    // 处理 getKey 逻辑 (如果需要的话)
   } else {
     if (!(await isValidKey(clientId, clientKey))) {
-      // 验证密钥
-      console.warn(
-        `Client ${clientId} provided invalid key. Disconnecting. socket.handshake.auth:`,
-        socket.handshake.auth,
-      );
-      socket.disconnect(true); // 密钥无效，断开连接
-      return;
-    }
-    // 密钥验证通过，设置房间等
-    try {
-      Rooms.createRoom(clientId, clientId); // 如果房间已存在，不会报错
-      Rooms.addClientToRoom(clientId, clientId, clientId);
-      Rooms.setClientDescription(clientId, clientDesc);
-      socket.join(clientId); // 加入以 clientId 命名的房间
-      console.log(`Client ${clientId} connected and joined room ${clientId}`);
-    } catch (error) {
-      console.error('Error setting up client:', error);
-      // 可以选择向客户端发送错误消息
+      // 密钥验证失败：创建临时房间 (仅当 clientId 不可信时)
+      if (!trustedClients.has(clientId) && !trustedSillyTaverns.has(clientId)) {
+        console.warn(
+          `Client ${clientId} provided invalid key and is not trusted. Creating temporary room. socket.handshake.auth:`,
+          socket.handshake.auth,
+        );
+
+        const tempRoomId = `temp_${clientId}`;
+        tempRooms[clientId] = tempRoomId;
+        socket.join(tempRoomId);
+        socket.emit(MSG_TYPE.TEMP_ROOM_ASSIGNED, { roomId: tempRoomId });
+      } else {
+        // 可信但是密钥不对，直接断开
+        console.warn(
+          `Client ${clientId} provided invalid key. Disconnecting. socket.handshake.auth:`,
+          socket.handshake.auth,
+        );
+        socket.disconnect(true);
+        return;
+      }
+    } else {
+      // 密钥验证通过
+      // 检查 clientId 是否可信
+      if (trustedClients.has(clientId) || trustedSillyTaverns.has(clientId)) {
+        // 可信，设置房间
+        try {
+          Rooms.createRoom(clientId, clientId); // 如果房间已存在，不会报错
+          Rooms.addClientToRoom(clientId, clientId, clientId);
+          Rooms.setClientDescription(clientId, clientDesc);
+          socket.join(clientId); // 加入以 clientId 命名的房间
+          console.log(`Client ${clientId} connected and joined room ${clientId}`);
+        } catch (error) {
+          console.error('Error setting up client:', error);
+          // 可以选择向客户端发送错误消息
+        }
+      } else {
+        // 不可信，即使密钥正确也不创建房间
+        console.warn(`Client ${clientId} is not trusted, even with a valid key.  Not creating a room.`);
+        // 可以选择发送一个特定的错误消息
+        socket.emit(MSG_TYPE.ERROR, { message: 'Client is not trusted.' });
+        socket.disconnect(true); //断开连接
+        return;
+      }
     }
   }
 
-  // 监听 IDENTIFY_SILLYTAVERN (可以移到 /sillytavern 命名空间)
+  // 监听 IDENTIFY_SILLYTAVERN
   socket.on(MSG_TYPE.IDENTIFY_SILLYTAVERN, async (data, callback) => {
-    // data: { clientId: string }
-    const sillyTavernSocketId = null;
-    if (sillyTavernSocketId) {
-      // 已经有 SillyTavern 连接了
+    // data: { clientId: string }'
+
+    if (trustedSillyTaverns.has(data.clientId)) {
       console.warn('SillyTavern master key already set. Ignoring new key.');
       if (callback) callback({ status: 'error', message: 'SillyTavern already connected.' }); //更严谨些
       return;
     }
-    sillyTavernSocketId = socket.id;
-    isSillyTavernConnected = true;
-    if (Keys.clientKeys[sillyTavernSocketId]) {
-      SILLYTAVERN_key = Keys.clientKeys[sillyTavernSocketId];
+
+    // 添加到可信 SillyTavern 集合
+    trustedSillyTaverns.add(data.clientId);
+
+    let SILLYTAVERN_key; // 为每个 SillyTavern 实例单独生成密钥
+    if (Keys.clientKeys[socket.id]) {
+      // 检查是否已存在密钥（不太可能，但以防万一）
+      SILLYTAVERN_key = Keys.clientKeys[socket.id];
     } else {
       SILLYTAVERN_key = Keys.generateAndStoreClientKey(data.clientId);
     }
+    //serverSettings.sillyTavernMasterKey = SILLYTAVERN_key; // 存储密钥（可选，取决于你如何使用）
 
-    //const hashedPassword = await bcrypt.hash(data.key, saltRounds); // saltRounds 要在外部定义
-    serverSettings.sillyTavernMasterKey = SILLYTAVERN_key;
-
-    console.log(`SillyTavern identified with socket ID: ${sillyTavernSocketId}`);
-    saveServerSettings(serverSettings); // 确保定义了 saveServerSettings
-    processLLMRequest(); // 确保定义了 processLLMRequest
+    console.log(`SillyTavern identified with socket ID: ${socket.id} and clientId: ${data.clientId}`);
+    saveServerSettings(serverSettings);
+    //processLLMRequest();
     if (callback) callback({ status: 'ok', key: SILLYTAVERN_key });
   });
 
   // 监听 GET_CLIENT_KEY
   socket.on(MSG_TYPE.GET_CLIENT_KEY, async (data, callback) => {
-    if (clientId !== sillyTavernSocketId) {
+    // 只有 SillyTavern 可以获取客户端密钥
+    if (!trustedSillyTaverns.has(clientId)) {
       if (callback) callback({ status: 'error', message: 'Unauthorized' });
       return;
     }
@@ -375,73 +500,76 @@ authNsp.on('connection', async (socket) => {
 
   // 断开连接
   socket.on('disconnect', reason => {
-    const clientId = socket.handshake.auth.clientId; // 在 disconnect 事件中也能获取到
+    const clientId = socket.handshake.auth.clientId;
 
-    if (clientId === sillyTavernSocketId) {
-      sillyTavernSocketId = null;
-      isSillyTavernConnected = false;
-      console.log('SillyTavern disconnected.');
+    // 如果是 SillyTavern 断开，从 trustedSillyTaverns 中移除
+    if (trustedSillyTaverns.has(clientId)) {
+      trustedSillyTaverns.delete(clientId);
+      console.log(`SillyTavern with clientId ${clientId} disconnected.`);
     }
 
-    // 启动重试机制 (改进版)
-    let attempts = 0;
-    // 如果之前有这个 clientId 的重连计时器，先清除
-    if (reconnectIntervals[clientId]) {
-      clearInterval(reconnectIntervals[clientId]);
-      delete reconnectIntervals[clientId];
-    }
-
-    const reconnectInterval = setInterval(() => {
-      // 检查是否有相同 clientId 的 socket 已经连接
-      let alreadyConnected = false;
-      authNsp.sockets.forEach(existingSocket => {
-        if (existingSocket.handshake.auth.clientId === clientId && existingSocket.id !== socket.id) {
-          alreadyConnected = true;
+    // 检查是否在临时房间
+    if (tempRooms[clientId]) {
+      console.log(`Client ${clientId} disconnected from temporary room ${tempRooms[clientId]}`);
+      delete tempRooms[clientId];
+    } else {
+      // 仅对非临时房间的、可信的客户端启动重试机制
+      if (trustedClients.has(clientId) || trustedSillyTaverns.has(clientId)) {
+        let attempts = 0;
+        if (reconnectIntervals[clientId]) {
+          clearInterval(reconnectIntervals[clientId]);
+          delete reconnectIntervals[clientId];
         }
-      });
 
-      if (alreadyConnected) {
-        clearInterval(reconnectInterval);
-        delete reconnectIntervals[clientId];
-        console.log(`Client ${clientId} reconnected with a different socket. Stopping retry.`);
-        try {
-          // 重新加入房间 (如果需要)
-          Rooms.addClientToRoom(clientId, clientId, clientId);
-        } catch (error) {
-          console.error('Error re-adding client to room:', error);
-        }
-        return; // 提前返回，跳过后续逻辑
-      }
-      attempts++;
-      if (attempts >= serverSettings.reconnectAttempts) {
-        clearInterval(reconnectInterval);
-        delete reconnectIntervals[clientId]; // 清除计时器
-        try {
-          // 达到最大重试次数，删除房间
-          Rooms.deleteRoom(clientId, clientId);
-        } catch (error) {
-          console.error('Error deleting room:', error);
-        }
-        console.log(`Client ${clientId} failed to reconnect. Room ${clientId} deleted.`);
+        const reconnectInterval = setInterval(() => {
+          let alreadyConnected = false;
+          authNsp.sockets.forEach(existingSocket => {
+            if (existingSocket.handshake.auth.clientId === clientId && existingSocket.id !== socket.id) {
+              alreadyConnected = true;
+            }
+          });
 
-        // 通知 SillyTavern (可以移到 /sillytavern 命名空间)
-        if (sillyTavernSocketId) {
-          io.of(NAMESPACES.SILLY_TAVERN)
-            .to(sillyTavernSocketId)
-            .emit(MSG_TYPE.ERROR, {
-              type: MSG_TYPE.ERROR,
-              message: `Client ${clientId} disconnected and failed to reconnect. Room deleted.`,
+          if (alreadyConnected) {
+            clearInterval(reconnectInterval);
+            delete reconnectIntervals[clientId];
+            console.log(`Client ${clientId} reconnected with a different socket. Stopping retry.`);
+            try {
+              Rooms.addClientToRoom(clientId, clientId, clientId);
+            } catch (error) {
+              console.error('Error re-adding client to room:', error);
+            }
+            return;
+          }
+          attempts++;
+          if (attempts >= serverSettings.reconnectAttempts) {
+            clearInterval(reconnectInterval);
+            delete reconnectIntervals[clientId];
+            try {
+              Rooms.deleteRoom(clientId, clientId);
+            } catch (error) {
+              console.error('Error deleting room:', error);
+            }
+            console.log(`Client ${clientId} failed to reconnect. Room ${clientId} deleted.`);
+
+            // 通知所有 SillyTavern 实例
+            trustedSillyTaverns.forEach(stClientId => {
+              io.of(NAMESPACES.SILLY_TAVERN)
+                .to(stClientId) // 使用 clientId，而不是 socketId
+                .emit(MSG_TYPE.ERROR, {
+                  type: MSG_TYPE.ERROR,
+                  message: `Client ${clientId} disconnected and failed to reconnect. Room deleted.`,
+                });
             });
-        }
-      } else {
-        console.log(
-          `Client ${clientId} disconnected. Reconnect attempt ${attempts}/${serverSettings.reconnectAttempts}...`,
-        );
-      }
-    }, serverSettings.reconnectDelay);
+          } else {
+            console.log(
+              `Client ${clientId} disconnected. Reconnect attempt ${attempts}/${serverSettings.reconnectAttempts}...`,
+            );
+          }
+        }, serverSettings.reconnectDelay);
 
-    // 将新的重连计时器添加到映射中
-    reconnectIntervals[clientId] = reconnectInterval;
+        reconnectIntervals[clientId] = reconnectInterval;
+      }
+    }
   });
 });
 
@@ -452,7 +580,7 @@ clientsNsp.on('connection', (socket) => {
   const clientId = socket.handshake.auth.clientId;
   console.log(`Client ${clientId} connected to ${NAMESPACES.CLIENTS} namespace`);
   socket.on(MSG_TYPE.GET_CLIENT_KEY, async (data, callback) => {
-    if (clientId !== sillyTavernSocketId) {
+    if (trustedSillyTaverns.has(clientId)) {
       if (callback) callback({ status: 'error', message: 'Unauthorized' });
       return;
     }
@@ -471,7 +599,7 @@ clientsNsp.on('connection', (socket) => {
   });
 
   socket.on(MSG_TYPE.GENERATE_CLIENT_KEY, async (data, callback) => {
-    if (clientId !== sillyTavernSocketId) {
+    if (trustedSillyTaverns.has(clientId)) {
       if (callback) callback({ status: 'error', message: 'Unauthorized' });
       return;
     }
@@ -485,7 +613,7 @@ clientsNsp.on('connection', (socket) => {
   });
 
   socket.on(MSG_TYPE.REMOVE_CLIENT_KEY, (data, callback) => {
-    if (clientId !== sillyTavernSocketId) {
+    if (trustedSillyTaverns.has(clientId)) {
       if (callback) callback({ status: 'error', message: 'Unauthorized' });
       return;
     }
@@ -499,7 +627,7 @@ clientsNsp.on('connection', (socket) => {
   });
 
   socket.on('getClientList', (data, callback) => {
-    if (clientId !== sillyTavernSocketId) {
+    if (trustedSillyTaverns.has(clientId)) {
       if (callback) callback({ status: 'error', message: 'Unauthorized' });
       return;
     }
@@ -541,60 +669,49 @@ clientsNsp.on('connection', (socket) => {
 
 // /llm 命名空间
 const llmNsp = io.of(NAMESPACES.LLM);
-llmNsp.on('connection', (socket) => {
+
+// 用于存储请求的映射关系： { [requestId]: [ { target: string, clientId: string }, ... ] }
+const llmRequests = {};
+
+llmNsp.on('connection', socket => {
   const clientId = socket.handshake.auth.clientId;
 
-  // 监听 LLM_REQUEST, LLM_RESPONSE
-  socket.on(MSG_TYPE.LLM_REQUEST, (data) => {
+  // 监听 LLM_REQUEST
+  socket.on(MSG_TYPE.LLM_REQUEST, data => {
     console.log(`Received LLM request from ${clientId}:`, data);
 
-    const target = data.target;
+    const target = data.target; // 假设 data 中始终包含 target (SillyTavern 的 clientId)
+    const requestId = data.requestId;
+
     if (!canSendMessage(clientId, target)) {
       console.warn(`Client ${clientId} is not allowed to send messages to room ${target}.`);
-      return;
-    }
-
-    if (target === 'server') {
-      // 直接在服务器端处理
-      requestQueue.push({
-        clientId: clientId,
-        requestId: data.requestId,
-        message: data.message,
+      socket.emit(MSG_TYPE.ERROR, {
+        type: MSG_TYPE.ERROR,
+        message: `Client ${clientId} is not allowed to send messages to room ${target}.`,
       });
-      processLLMRequest(); // 确保定义了 processLLMRequest
-    } else {
-      // 转发给目标房间
-      io.to(target).emit(MSG_TYPE.LLM_REQUEST, data);
-    }
-  });
-
-  socket.on(MSG_TYPE.LLM_RESPONSE, (data) => {
-    console.log(`Received LLM response from ${clientId}:`, data);
-
-    const target = data.target;
-    if (!canSendMessage(clientId, target)) {
-      console.warn(`Client ${clientId} is not allowed to send messages to room ${target}.`);
       return;
     }
 
     if (target === 'server') {
-      // 直接在服务器端处理
-      const originalRequest = requestQueue.find((req) => req.requestId === data.requestId);
-      if (originalRequest) {
-        io.to(originalRequest.clientId).emit(MSG_TYPE.LLM_RESPONSE, {
-          // 发送给原始请求的客户端
-          requestId: data.requestId,
-          message: data.message,
-        });
-        processLLMRequest(); // 继续处理队列中的下一个请求
-      } else {
-        console.warn(`Original request not found for requestId: ${data.requestId}`);
-      }
-    } else {
-      // 转发给目标房间
-      io.to(target).emit(MSG_TYPE.LLM_RESPONSE, data);
+      console.warn(`LLM requests should not be sent to the server directly.`);
+      socket.emit(MSG_TYPE.ERROR, {
+        type: MSG_TYPE.ERROR,
+        message: 'LLM requests should not be sent to the server directly.',
+        requestId: data.requestId,
+      });
+      return;
     }
+
+    // 存储请求的映射关系
+    if (!llmRequests[requestId]) {
+      llmRequests[requestId] = []; // 如果 requestId 不存在，则创建一个空数组
+    }
+    llmRequests[requestId].push({ target, clientId }); // 将新的映射关系添加到数组中
   });
+  
+  setupServerStreamHandlers(io, NAMESPACES.LLM, llmRequests); 
+  setupServerNonStreamHandlers(io, NAMESPACES.LLM, llmRequests); 
+
 });
 
 // /sillytavern 命名空间
@@ -605,7 +722,7 @@ sillyTavernNsp.on('connection', (socket) => {
   // 处理与 SillyTavern 相关的事件，例如 CLIENT_SETTINGS
   socket.on(MSG_TYPE.CLIENT_SETTINGS, (clientSettings) => {
     // 验证发送者是否是 SillyTavern 扩展
-    if (clientId !== sillyTavernSocketId) {
+    if (trustedSillyTaverns.has(clientId)) {
       console.warn(`Client ${clientId} is not authorized to send CLIENT_SETTINGS.`);
       // 可以选择向发送者发送错误消息
       socket.emit(MSG_TYPE.ERROR, {
