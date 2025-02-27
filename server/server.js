@@ -54,7 +54,7 @@ let serverSettings = {
 
 let trustedSillyTaverns = new Set();
 
-let trustedClients = new Set(); 
+let trustedClients = new Set();
 
 let  sillyTavernkey = new Map();
 
@@ -157,7 +157,7 @@ async function loadServerSettings() { // 改为 async 函数
           saveJsonToFile(`./settings/${clientId}-settings.json`, { "sillyTavernMasterKey": hashedPassword });
           console.log(`Hashed password for SillyTavern client: ${clientId}`);
         }
-      
+
     }
 
     // 如果密码被修改，保存到文件
@@ -328,6 +328,8 @@ function canSendMessage(senderClientId, targetRoom) {
     return true;
   }
 
+  if (targetRoom === String(senderClientId))
+
   if (trustedSillyTaverns.has(senderClientId)) {
     return true;
   }
@@ -411,7 +413,7 @@ authNsp.on('connection', async socket => {
   // 新增：临时房间映射
   const tempRooms = {};
 
-  
+
   if (trustedClients.has(clientId) || trustedSillyTaverns.has(clientId)) {
     // 可信客户端
     if (!(await isValidKey(clientId, clientKey))) {
@@ -461,12 +463,6 @@ authNsp.on('connection', async socket => {
     Rooms.addClientToRoom(socket, clientId);
     Rooms.setClientDescription(clientId, clientDesc);
     socket.join(clientId); // 加入以 clientId 命名的房间
-
-    socket.emit('message', {
-      type: MSG_TYPE.GET_CLIENT_KEY, // 使用自定义的消息类型
-      key: SILLYTAVERN_key,
-      clientId: clientId, // 包含 clientId
-    });
   }
 
   // 监听 GET_CLIENT_KEY
@@ -489,7 +485,7 @@ authNsp.on('connection', async socket => {
   socket.on(MSG_TYPE.LOGIN, async (data, callback) => {
     //data: {password: string}
     const { clientId, password } = data;
-    
+
     if (serverSettings.sillyTavernPassword) {
       //const func_ReadJsonFromFile = functionRegistry[readJsonFromFile];
       const jsonData = await readJsonFromFile(`./settings/${clientId}-settings.json`);
@@ -680,48 +676,75 @@ const llmNsp = io.of(NAMESPACES.LLM);
 // 用于存储请求的映射关系： { [requestId]: [ { target: string, clientId: string }, ... ] }
 const llmRequests = {};
 
-llmNsp.on('connection', socket => {
+llmNsp.on('connection', (socket) => {
   const clientId = socket.handshake.auth.clientId;
 
   // 监听 LLM_REQUEST
-  socket.on(MSG_TYPE.LLM_REQUEST, data => {
+  socket.on(MSG_TYPE.LLM_REQUEST, (data, callback) => { // 添加 callback 参数
     console.log(`Received LLM request from ${clientId}:`, data);
 
-    const target = data.target; // 假设 data 中始终包含 target (SillyTavern 的 clientId)
+    const target = data.target;
     const requestId = data.requestId;
 
     if (!canSendMessage(clientId, target)) {
       console.warn(`Client ${clientId} is not allowed to send messages to room ${target}.`);
-      socket.emit(MSG_TYPE.ERROR, {
-        type: MSG_TYPE.ERROR,
-        message: `Client ${clientId} is not allowed to send messages to room ${target}.`,
-      });
+      if (callback) { // 使用 callback 返回错误
+        callback({
+          status: 'error',
+          message: `Client ${clientId} is not allowed to send messages to room ${target}.`,
+        });
+      }
       return;
     }
 
     if (target === 'server') {
       console.warn(`LLM requests should not be sent to the server directly.`);
-      socket.emit(MSG_TYPE.ERROR, {
-        type: MSG_TYPE.ERROR,
-        message: 'LLM requests should not be sent to the server directly.',
-        requestId: data.requestId,
-      });
+      if (callback) { // 使用 callback 返回错误
+        callback({
+          status: 'error',
+          message: 'LLM requests should not be sent to the server directly.',
+        });
+      }
       return;
     }
 
-    // 存储请求的映射关系
-    if (!llmRequests[requestId]) {
-      llmRequests[requestId] = []; // 如果 requestId 不存在，则创建一个空数组
-    }
-    llmRequests[requestId].push({ target, clientId }); // 将新的映射关系添加到数组中
-  });
-  
-  
+    // 查找目标客户端
+    let targetSocket = null;
+    llmNsp.sockets.forEach(existingSocket => { // 遍历当前命名空间下的所有 socket
+      if (existingSocket.handshake.auth.clientId === target) {
+        targetSocket = existingSocket;
+      }
+    });
 
+    if (targetSocket) {
+      // 找到目标客户端，转发请求
+      targetSocket.emit(MSG_TYPE.LLM_REQUEST, data);
+      console.log(`Forwarded LLM request to target client: ${target}`);
+
+       // 存储请求的映射关系 (只有在找到目标客户端时才存储)
+        if (!llmRequests[requestId]) {
+          llmRequests[requestId] = [];
+        }
+      llmRequests[requestId].push({ target, clientId });
+
+      if (callback) { // 可选: 发送成功回执
+        callback({ status: 'ok', message: 'Request forwarded.' });
+      }
+    } else {
+      // 未找到目标客户端，返回错误
+      console.warn(`Target client not found: ${target}`);
+      if (callback) { // 使用 callback 返回错误
+        callback({
+          status: 'error',
+          message: `Target client not found: ${target}`,
+        });
+      }
+    }
+  });
 });
 
 setupServerStreamHandlers(io, NAMESPACES.LLM, llmRequests);
-setupServerNonStreamHandlers(io, NAMESPACES.LLM, llmRequests); 
+setupServerNonStreamHandlers(io, NAMESPACES.LLM, llmRequests);
 
 // /sillytavern 命名空间
 const sillyTavernNsp = io.of(NAMESPACES.SILLY_TAVERN);

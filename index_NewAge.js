@@ -132,7 +132,7 @@ function disconnectAllSockets() {
 async function onLoginClick() {
     const password = $('#socketio-password').val();
     const rememberMe = $('#socketio-rememberMe').is(':checked');
-  
+
     // 使用默认命名空间进行登录
     const loginSocket = createSocket(
       NAMESPACES.AUTH,
@@ -155,7 +155,7 @@ async function onLoginClick() {
         $('#login-message').text('').removeClass('error');
         $('.button-group').show();
         $('.animated-details').show();
-  
+
         if (rememberMe) {
 
           // 使用 function_call 命名空间
@@ -432,7 +432,7 @@ function getSillyTavernPort() {
     //SillyTavern的端口储存在这里
     //console.log('Location port:', window.location.port);
     return window.location.port;
-    
+
 }
 
 /**
@@ -894,7 +894,7 @@ async function processRequest() {
     try {
       // 调用 iframeGenerate 生成文本
       await iframeGenerate(request.generateConfig);
-      
+
       //生成的文本会通过事件监听器自动进行处理，无需在此进行处理
     } catch (error) {
       console.error('生成文本时出错:', error);
@@ -946,7 +946,7 @@ async function handleLlmRequest(data) {
   };
 
   // 将请求添加到队列 / Add the request to the queue
-  llmRequestQueue.push({ generateConfig, requestId: data.requestId, outputId: data.outputId });
+  llmRequestQueue.push({ generateConfig, requestId: data.requestId, outputId: data.outputId , target: data.target });
   processRequest(); // 尝试处理请求 / Try to process the request
 }
 
@@ -1369,7 +1369,7 @@ jQuery(async () => {
   eventSource.on(event_types.STREAM_TOKEN_RECEIVED, data => {
     if (messageForwarder.isStreamForwardingEnabled) {
       latestRequestId = llmRequestQueue.at(-1).requestId;
-      messageForwarder.handleStreamToken(data, messageForwarder.getMessageType(), latestRequestId); 
+      messageForwarder.handleStreamToken(data, messageForwarder.getMessageType(), latestRequestId);
     } else if (messageForwarder.isNonStreamForwardingEnabled) {
       messageForwarder.accumulateStreamData(data, latestRequestId);
     }
@@ -1382,12 +1382,12 @@ jQuery(async () => {
         messageId,
         messageForwarder.getMessageType(),
         latestRequestId,
-      ); 
+      );
     }
   });
 
   let generationStartedHandled = false;
-  
+
   eventSource.on(event_types.GENERATION_STARTED, () => {
     if (!generationStartedHandled) {
       messageForwarder.setNewOutputId();
@@ -1425,5 +1425,5 @@ jQuery(async () => {
   $('#socketio-extensionName').val(generateClientId()).attr('readonly', true);
   $('#socketio-localPortInput').val(getSillyTavernPort()).attr('readonly', true);
 
-  
+
 });

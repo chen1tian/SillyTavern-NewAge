@@ -4,8 +4,10 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="d1d6f788-9b1c-478d-a7ae-0df505bf5ca6" name="更改" comment="2025.2.27-重构命名空间">
+    <list default="true" id="d1d6f788-9b1c-478d-a7ae-0df505bf5ca6" name="更改" comment="2025.2.28-debug安全性相关">
+      <change afterPath="$PROJECT_DIR$/developer_readme_client.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/server/server.js" beforeDir="false" afterPath="$PROJECT_DIR$/server/server.js" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -194,7 +196,23 @@
       <option name="project" value="LOCAL" />
       <updated>1740587303365</updated>
     </task>
-    <option name="localTasksCounter" value="17" />
+    <task id="LOCAL-00017" summary="2025.2.28-debug安全性相关">
+      <option name="closed" value="true" />
+      <created>1740673060810</created>
+      <option name="number" value="00017" />
+      <option name="presentableId" value="LOCAL-00017" />
+      <option name="project" value="LOCAL" />
+      <updated>1740673060810</updated>
+    </task>
+    <task id="LOCAL-00018" summary="2025.2.28-debug安全性相关">
+      <option name="closed" value="true" />
+      <created>1740673169701</created>
+      <option name="number" value="00018" />
+      <option name="presentableId" value="LOCAL-00018" />
+      <option name="project" value="LOCAL" />
+      <updated>1740673169701</updated>
+    </task>
+    <option name="localTasksCounter" value="19" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -226,6 +244,7 @@
     <MESSAGE value="二次提交，准备进入debug阶段" />
     <MESSAGE value="2025.2.26-debug" />
     <MESSAGE value="2025.2.27-重构命名空间" />
-    <option name="LAST_COMMIT_MESSAGE" value="2025.2.27-重构命名空间" />
+    <MESSAGE value="2025.2.28-debug安全性相关" />
+    <option name="LAST_COMMIT_MESSAGE" value="2025.2.28-debug安全性相关" />
   </component>
 </project>
