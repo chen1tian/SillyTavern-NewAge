@@ -74,16 +74,21 @@ server/
 
 ### 房间管理 (Rooms.js)
 
-| 函数名                                             | 描述                         | 参数                                                                                                 | 返回值             |
-| :------------------------------------------------- | :--------------------------- | :--------------------------------------------------------------------------------------------------- | :----------------- |
-| `createRoom(extensionId, roomName)`                | 创建一个新房间。             | `extensionId`: 创建房间的扩展 ID, `roomName`: 要创建的房间名称                                       | `Promise<boolean>` |
-| `deleteRoom(extensionId, roomName)`                | 删除一个房间。               | `extensionId`: 执行删除操作的扩展/客户端 ID, `roomName`: 要删除的房间名称                            | `Promise<boolean>` |
-| `addClientToRoom(extensionId, clientId, roomName)` | 将一个客户端添加到一个房间。 | `extensionId`: 执行添加操作的扩展/客户端 ID, `clientId`: 要添加的客户端 ID, `roomName`: 目标房间名称 | `Promise<boolean>` |
-| `removeClientFromRoom(clientId, roomName)`         | 将一个客户端从一个房间移除。 | `clientId`: 要移除的客户端 ID, `roomName`: 要移除的房间名称                                          | `Promise<boolean>` |
-| `isClientInRoom(clientId, roomName)`               | 检查客户端是否在房间内。     | `clientId`: 客户端ID, `roomName`: 房间名称                                                           | `boolean`          |
-| `setClientDescription(clientId, description)`      | 设置客户端的描述信息。       | `clientId`: 客户端 ID, `description`: 客户端描述                                                     | 无                 |
-| `getClientDescription(clientId)`                   | 获取客户端的描述信息。       | `clientId`: 客户端 ID                                                                                | `string` \| `null` |
-| `getAllRooms()`                                    | 获取服务器中所有的房间       | 无                                                                                                   | `string[]`         |
+该模块提供了基于 Socket.IO 的房间管理功能。它允许创建、删除房间，以及将客户端添加到房间或从房间移除。
+
+**重要提示：**  `Rooms.js` 现在完全依赖于 Socket.IO 的内置房间管理功能。 不再使用外部文件 (如 `settings.json`) 来存储房间信息。
+
+| 函数名                                        | 描述                                                        | 参数                                                                           | 返回值     |
+| :-------------------------------------------- | :---------------------------------------------------------- | :----------------------------------------------------------------------------- | :--------- |
+| `createRoom(socket, roomName)`                | 创建一个新房间，并将创建者 `socket` 加入该房间。            | `socket`: 创建房间的客户端的 Socket.IO `socket` 对象, `roomName`: 房间名称     | `boolean`  |
+| `deleteRoom(socket, roomName)`                | 删除一个房间。只有创建房间的 SillyTavern 扩展才能删除房间。 | `socket`: 发起删除操作的客户端的 Socket.IO `socket` 对象, `roomName`: 房间名称 | `boolean`  |
+| `addClientToRoom(socket, roomName)`           | 将客户端添加到房间。                                        | `socket`: 要加入房间的客户端的 Socket.IO `socket` 对象,  `roomName`: 房间名称  | `boolean`  |
+| `removeClientFromRoom(socket, roomName)`      | 将客户端从房间移除。                                        | `socket`: 要离开房间的客户端的 Socket.IO `socket` 对象, `roomName`: 房间名称   | `boolean`  |
+| `isClientInRoom(clientId, roomName)`          | 检查客户端是否在房间内。                                    | `clientId`: 要检查的客户端 ID,`roomName`: 要检查的房间名称                     | `boolean`  |
+| `getAllRooms()`                               | 获取服务器上的所有房间。                                    | 无                                                                             | `string[]` |
+| `getClientRooms(socket)`                      | 获取客户端所在的房间列表。                                  | `socket`: 客户端的 Socket.IO `socket` 对象                                     | `string[]` |
+| `setClientDescription(clientId, description)` | *已弃用*。设置客户端的描述信息 (不再使用)。                 | `clientId`: 客户端 ID, `description`: 描述                                     | 无         |
+| `getClientDescription(clientId)`              | *已弃用*。获取客户端的描述信息 (不再使用)。                 | `clientId`: 客户端 ID                                                          | `string`   |
 
 ### 密钥管理 (Keys.js)
 
@@ -219,6 +224,7 @@ const MSG_TYPE = {
       "requestId": "唯一请求 ID (UUID)",
       "clientId": "唯一客户端ID",
       "source": "消息来源 ('server' 或 客户端 ID)",
+      "target": "目标('server' 或者 客户端 ID)",
       "...": "其他数据 (根据消息类型而定)"
     }
     ```

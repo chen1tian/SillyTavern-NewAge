@@ -28,6 +28,7 @@ import { addClientToRoom, removeClientFromRoom } from './dist/Rooms.js';
 const extensionName = 'SillyTavern-NewAge';
 const extensionFolderPath = `scripts/extensions/third-party/${extensionName}`;
 
+// 各种socket
 let socket = null; // 用于主要的连接 (认证, 获取初始信息)
 let tempMainSocket = null;
 let llmSocket = null; // 用于 LLM 请求/响应
@@ -41,43 +42,53 @@ let streamBuffer = [];
 let isStreaming = false;
 let logCounter = 0;
 
-// 新增：请求队列
+// 请求队列
 const llmRequestQueue = [];
 const functionCallQueue = [];
 let isProcessingRequest = false; // 标志：是否有请求正在处理中
 
+// socket.handshake.auth相关
 let isRemembered = false;
 let clientId = generateClientId();  // 声明 clientId
 let clientDesc; //声明clientDesc
 let fullServerAddress = 'http://localhost:4000'; //声明 fullServerAddress
 
+let setAwait = false;//标志：让代码等待
+
 /**
  * @description 创建并配置 Socket.IO 连接
  * @param {string} namespace - 命名空间
  * @param {object} authData - 认证数据
- * @param {boolean} [autoConnect=true] - 是否自动连接
+ * @param {boolean} [autoConnect=false] - 是否自动连接
  * @returns {initSocket} - Socket.IO 连接实例
  */
-function createSocket(namespace, authData, autoConnect = true) {
+function createSocket(namespace, authData, autoConnect = false, reconnection = false, reconnectionAttempts = 3) {
   const initSocket = io(fullServerAddress + namespace, {
     auth: authData,
     clientId: clientId,
     autoConnect: autoConnect,
+    reconnection: reconnection,
+    reconnectionAttempts: reconnectionAttempts,
   });
 
-   // 通用错误处理
+  // 通用错误处理
   initSocket.on('connect_error', error => {
-    addLogMessage('fail', `[${namespace}] 连接错误: ${error}`, 'client');
-    console.error(`Socket.IO [${namespace}]: Connection error`, error);
-    toastr.error(`[${namespace}] 连接错误: ${error}`, 'Socket.IO');
+    addLogMessage('fail', `[${namespace}] 连接错误: ${error}`, 'clientType:');
+    console.error(`Socket.IO [${namespace}],clientType:${initSocket.auth.clientType}: Connection error`, error);
+    //toastr.error(`[${namespace}] 连接错误: ${error}`, 'Socket.IO');
   });
 
   initSocket.on('disconnect', reason => {
     addLogMessage('warning', `[${namespace}] 与服务器断开连接: ${reason}`, 'client');
-    console.log(`Socket.IO [${namespace}]: Disconnected, reason: ${reason}`);
-    toastr.warning(`[${namespace}] 已断开连接: ${reason}`, 'Socket.IO');
+    console.log(`Socket.IO [${namespace}],clientType:${initSocket.auth.clientType}: Disconnected, reason: ${reason}`);
+    //toastr.warning(`[${namespace}] 已断开连接: ${reason}`, 'Socket.IO');
   });
   return initSocket;
+}
+
+function disconnectSocket(socket){
+  console.log(`${socket.auth.clientType} is disconnect.`);
+  socket.disconnect()
 }
 
 /**
@@ -123,12 +134,16 @@ async function onLoginClick() {
     const rememberMe = $('#socketio-rememberMe').is(':checked');
   
     // 使用默认命名空间进行登录
-    const loginSocket = createSocket(NAMESPACES.AUTH, {
-      clientType: 'extension-Login',
-      clientId: clientId,
-      desc: clientDesc,
-      key: 'getKey'
-    }, false); // 不自动连接
+    const loginSocket = createSocket(
+      NAMESPACES.AUTH,
+      {
+        clientType: 'extension_loginSocket',
+        clientId: clientId,
+        desc: clientDesc,
+        key: 'getKey',
+      },
+      false,
+    ); // 不自动连接
 
     loginSocket.connect(); // 手动连接
 
@@ -144,11 +159,15 @@ async function onLoginClick() {
         if (rememberMe) {
 
           // 使用 function_call 命名空间
-          const rememberMeSocket = createSocket(NAMESPACES.FUNCTION_CALL, {
-            clientType: 'extension_FUNCTION_CALL',
-            clientId: clientId,
-            desc: clientDesc,
-          },false);
+          const rememberMeSocket = createSocket(
+            NAMESPACES.FUNCTION_CALL,
+            {
+              clientType: 'extension_rememberMeSocket',
+              clientId: clientId,
+              desc: clientDesc,
+            },
+            false,
+          );
 
         rememberMeSocket.connect(); // 手动连接
           rememberMeSocket.emit(
@@ -166,19 +185,21 @@ async function onLoginClick() {
                 console.error('Failed to save "Remember_me":', response.error);
                 toastr.error('Failed to save "Remember_me".', 'Error');
               }
-              rememberMeSocket.disconnect();
+              //rememberMeSocket.disconnect();
+              disconnectSocket(rememberMeSocket);
             },
           );
 
         }
         connectToServer(); // 登录成功后自动连接
-        loginSocket.disconnect(); // 登录成功，断开登录用的 socket
-
+        //loginSocket.disconnect(); // 登录成功，断开登录用的 socket
+        disconnectSocket(loginSocket);
       } else {
         $('#login-message')
           .text(response.message || 'Login failed.')
           .addClass('error');
-        loginSocket.disconnect();
+        //loginSocket.disconnect();
+        disconnectSocket(loginSocket);
       }
     });
 }
@@ -194,12 +215,14 @@ async function checkRememberMe() {
   const tempSocket = createSocket(
     NAMESPACES.FUNCTION_CALL,
     {
-      clientType: 'extension-checkRememberMe',
+      clientType: 'extension_checkRememberMe',
       clientId: clientId,
       desc: clientDesc,
     },
     false,
   ); // 不自动连接
+
+  setAwait = true;
 
   tempSocket.connect(); // 手动连接
 
@@ -239,7 +262,9 @@ async function checkRememberMe() {
           $('.button-group').hide();
           $('.animated-details').hide();
         }
-        tempSocket.disconnect(); // 断开临时连接
+        //tempSocket.disconnect(); // 断开临时连接
+        disconnectSocket(tempSocket);
+        setAwait = false;
       },
     );
   });
@@ -251,7 +276,8 @@ async function checkRememberMe() {
     $('#login-form').show();
     $('.button-group').hide();
     $('.animated-details').hide();
-    tempSocket.disconnect(); // 确保断开
+    //tempSocket.disconnect(); // 确保断开
+    disconnectSocket(tempSocket);
   });
 }
 
@@ -267,7 +293,7 @@ function onLogoutClick() {
   const forgetMeSocket = createSocket(
     NAMESPACES.FUNCTION_CALL,
     {
-      clientType: 'extension_FUNCTION_CALL', //或者用其他的类型
+      clientType: 'extension_forgetMeSocket', //或者用其他的类型
       clientId: clientId,
       desc: clientDesc,
     },
@@ -432,94 +458,105 @@ async function connectToServer() {
 
   clientId = generateClientId();
   clientDesc = `本客户端是扩展端，运行于 ${getSillyTavernPort()} 端口`;
-  
-  const sillyTavernMasterKey = null;
 
-  // 获取或生成客户端密钥
+  let sillyTavernMasterKey = null;
 
   // 临时主连接 (用于认证, 获取初始信息)
-  tempMainSocket = createSocket(NAMESPACES.AUTH, {
-    clientType: 'extension-noKey',
-    clientId: clientId,
-    desc: clientDesc,
-    key: 'getKey',
-  });
+  tempMainSocket = createSocket(
+    NAMESPACES.SILLY_TAVERN,
+    {
+      clientType: 'extension_tempMainSocket',
+      clientId: clientId,
+      desc: clientDesc,
+      key: 'getKey',
+    },
+    false,
+  );
 
   tempMainSocket.connect();
 
-  tempMainSocket.on('connect', async () => {
-    tempMainSocket.emit(MSG_TYPE.IDENTIFY_SILLYTAVERN, { clientId }, response => {
-      if (response.status === 'ok' && response.key) {
-        sillyTavernMasterKey = response.key;
-        console.log('sillyTavernMasterKey:', sillyTavernMasterKey);
-      } else {
-        console.error('Failed to get sillyTavernMasterKey:', response.message);
-        toastr.error('Failed to get sillyTavernMasterKey.', 'Error');
-        resolve(null);
-      }
+  // 使用 Promise 包装获取 sillyTavernMasterKey 的逻辑
+  sillyTavernMasterKey = await new Promise((resolve, reject) => {
+    tempMainSocket.on('connect', () => {
+      tempMainSocket.emit(MSG_TYPE.IDENTIFY_SILLYTAVERN, { clientId }, response => {
+        if (response.status === 'ok' && response.key) {
+          console.log('sillyTavernMasterKey:', response.key);
+          resolve(response.key); // 成功获取 key，resolve Promise
+        } else if (response.status === 'warning' && response.key) {
+          console.warn('warning about sillyTavernMasterKey:', response.message);
+          resolve(response.key); // 收到警告，但仍获取到 key，resolve Promise
+        } else {
+          console.error('Failed to get sillyTavernMasterKey:', response.message);
+          //toastr.error('Failed to get sillyTavernMasterKey.', 'Error');
+          reject(response.message); // 获取 key 失败，reject Promise
+        }
+      });
     });
 
-    console.log('tempMainSocket:', tempMainSocket);
-  })
-
-  
-
-  socket = createSocket(NAMESPACES.LLM, {
-    clientType: 'extension',
-    clientId: clientId,
-    desc: clientDesc,
-    key: sillyTavernMasterKey,
+    // 添加错误处理，防止连接失败导致 Promise 永远不被 resolve/reject
+    tempMainSocket.on('connect_error', error => {
+      console.error('Connection error with tempMainSocket:', error);
+      reject(error); // 连接错误，reject Promise
+    });
   });
 
-  socket.connect();
+  // 确保获取到 sillyTavernMasterKey 后再继续
+  if (sillyTavernMasterKey) {
+    console.log('We got master key.');
+    disconnectSocket(tempMainSocket); // 获取到 key 后断开临时连接
 
-  globalThis.socket = socket; // 暴露给全局 (可选)
+    // 创建主 Socket 连接
+    socket = createSocket(NAMESPACES.LLM, {
+      clientType: 'extension_mainSocket',
+      clientId: clientId,
+      desc: clientDesc,
+      key: sillyTavernMasterKey, // 使用获取到的 key
+    });
 
-  //const key = await getOrCreateClientKey();
+    socket.connect();
+    globalThis.socket = socket; // 暴露给全局 (可选)
+    console.log('socket:', socket);
 
-  console.log('socket:', socket);
+    socket.on('connect', async () => {
+      addLogMessage('success', '已连接到服务器', 'client');
+      updateButtonState(true);
+      $('#socketio-testBtn').prop('disabled', false);
+      console.log('Socket.IO: Connected');
+      toastr.success('Socket.IO: 已连接', 'Socket.IO');
 
-  tempMainSocket.disconnect();
+      // 连接成功后，发送主密钥 (如果存在)  -- 这一步似乎不需要，因为已经在 createSocket 时传入了 key
+      //sendMasterKey();
 
-  socket.on('connect', async () => {
-    addLogMessage('success', '已连接到服务器', 'client');
-    updateButtonState(true);
-    $('#socketio-testBtn').prop('disabled', false);
-    console.log('Socket.IO: Connected');
-    toastr.success('Socket.IO: 已连接', 'Socket.IO');
+      setupLlmSocketListeners();
 
-    // 连接成功后，发送主密钥 (如果存在)
-    //sendMasterKey();
+      // 创建其他命名空间的连接
+      createNamespaceConnections();
 
-    setupLlmSocketListeners();
+      // 加载设置 (在主连接建立后)
+      loadSettings();
 
-    // 创建其他命名空间的连接
-    createNamespaceConnections();
+      // 刷新房间和客户端列表
+      refreshRoomList();
+      updateClientList();
+    });
 
-    // 加载设置 (在主连接建立后)
-    loadSettings();
-
-    // 刷新房间和客户端列表
-    refreshRoomList();
-    updateClientList();
-  });
-
-  // setupSocketListeners(); // 不需要了，在各个命名空间的连接中设置监听器
-
-  // 其他事件监听 (可选, 如果需要在默认命名空间监听其他事件)
-  socket.on('message', data => {
-    /* ... */
-    if (data.data === 'Yes,connection is fine.') {
-      toastr.success('连接活跃!', '测试连接');
-    }
-  });
+    // 其他事件监听 (可选, 如果需要在默认命名空间监听其他事件)
+    socket.on('message', data => {
+      /* ... */
+      if (data.data === 'Yes,connection is fine.') {
+        toastr.success('连接活跃!', '测试连接');
+      }
+    });
+  } else {
+    console.error('Failed to obtain SillyTavernMasterKey.  Socket not created.');
+  }
 }
 
 // 在主连接建立后创建其他命名空间的连接
 function createNamespaceConnections() {
   // AUTH 命名空间
   authSocket = createSocket(NAMESPACES.AUTH, {
-    clientType: 'extension_auth', // 可以使用不同的 clientType
+    clientType: 'extension_authSocket', // 可以使用不同的 clientType
     clientId: clientId,
     desc: clientDesc,
     key: socket.auth.key, // 使用主连接的密钥
@@ -528,7 +565,7 @@ function createNamespaceConnections() {
 
   // Function Call 命名空间
   functionCallSocket = createSocket(NAMESPACES.FUNCTION_CALL, {
-    clientType: 'extension_function_call',
+    clientType: 'extension_functionCallSocket',
     clientId: clientId,
     desc: clientDesc,
     key: socket.auth.key,
@@ -537,7 +574,7 @@ function createNamespaceConnections() {
 
   // Rooms 命名空间
   roomsSocket = createSocket(NAMESPACES.ROOMS, {
-    clientType: 'extension_rooms',
+    clientType: 'extension_roomsSocket',
     clientId: clientId,
     desc: clientDesc,
     key: socket.auth.key,
@@ -546,7 +583,7 @@ function createNamespaceConnections() {
 
   // Clients 命名空间
   clientsSocket = createSocket(NAMESPACES.CLIENTS, {
-    clientType: 'extension_clients',
+    clientType: 'extension_clientsSocket',
     clientId: clientId,
     desc: clientDesc,
     key: socket.auth.key,
@@ -702,8 +739,9 @@ async function getOrCreateClientKey() {
   return new Promise(resolve => {
     // 使用 clients 命名空间
     const keySocket = createSocket(
-      NAMESPACES.CLIENTS,{
-        clientType: 'extension',
+      NAMESPACES.CLIENTS,
+      {
+        clientType: 'extension_keySocket',
         clientId: clientId,
         key: socket.auth.key,
         desc: clientDesc,
@@ -728,7 +766,8 @@ async function getOrCreateClientKey() {
         });
       }
       console.log('response.key', response);
-      keySocket.disconnect(); // 获取或生成密钥后断开连接
+      //keySocket.disconnect(); // 获取或生成密钥后断开连接
+      disconnectSocket(keySocket);
     });
   });
 }
@@ -744,7 +783,7 @@ function sendMasterKey() {
     const masterKeySocket = createSocket(
       NAMESPACES.AUTH,
       {
-        clientType: 'extension_master_key',
+        clientType: 'extension_masterKeySocket',
         clientId: clientId,
         desc: clientDesc,
         key: socket.auth.key, // 使用主连接的密钥
@@ -754,7 +793,8 @@ function sendMasterKey() {
     masterKeySocket.connect();
 
     masterKeySocket.emit(MSG_TYPE.IDENTIFY_SILLYTAVERN, { key: serverSettings.sillyTavernMasterKey }, response => {
-      masterKeySocket.disconnect();
+      //masterKeySocket.disconnect();
+      disconnectSocket(masterKeySocket);
     });
   }
 }

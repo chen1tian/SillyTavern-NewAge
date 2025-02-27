@@ -1,6 +1,6 @@
 {
   "clientId": "SillyTavern-8000",
-  "Remember_me": false,
-  "sillyTavernMasterKey": "123456",
+  "Remember_me": true,
+  "sillyTavernPassWord": "$2b$10$atu5ZpQ0PXtzTzDtiWHLs.mNEqmBgPDYvd0eOJWPDymnO7HYulOk6",
   "isTrust": true
 }

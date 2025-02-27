@@ -6,25 +6,32 @@ import { dirname, join } from 'path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const settingsPath = join(__dirname, '../../settings.json'); // 指向 server/settings.json
+const settingsPath = join(__dirname, '../../settings.json'); // 指向 server/settings.json  //应该是server_settings.json
 let serverSettings;
 
 // 在调用任何函数前都必须先load
 function loadSettings() {
   try {
-    const settingsData = fs.readFileSync(settingsPath, 'utf-8');
-    serverSettings = JSON.parse(settingsData);
+    const settingsData = fs.readFileSync(join(__dirname, '../../settings/server_settings.json'), 'utf-8');
+    serverSettings = { ...serverSettings, ...JSON.parse(settingsData) };
+    console.log('Server settings loaded from file.');
   } catch (error) {
-    console.error('Failed to load server settings:', error);
-    // 如果加载失败，你可能需要设置一个默认值，或者抛出错误
-    serverSettings = { extensionRooms: {}, clientKeys: {} }; // 示例默认值, 添加clientKeys
-    //throw error; // 或者选择抛出错误, 让调用者处理
+    console.log('No settings file found or error loading settings. Using default settings.');
+    fs.writeFileSync(
+      join(__dirname, '../../settings/server_settings.json'),
+      JSON.stringify(serverSettings, null, 2),
+      'utf-8',
+    );
   }
 }
 
 function saveSettings() {
   try {
-    fs.writeFileSync(settingsPath, JSON.stringify(serverSettings, null, 2), 'utf-8');
+    fs.writeFileSync(
+      join(__dirname, '../../settings/server_settings.json'),
+      JSON.stringify(serverSettings, null, 2),
+      'utf-8',
+    );
     console.log('Server settings saved successfully.');
   } catch (error) {
     console.error('Failed to save server settings:', error);
@@ -32,160 +39,172 @@ function saveSettings() {
   }
 }
 
-// 创建房间 (仅限扩展)
-function createRoom(extensionId, roomName) {
-  try {
-    loadSettings();
-    if (!serverSettings.extensionRooms[extensionId]) {
-      serverSettings.extensionRooms[extensionId] = [];
-    }
-    if (!serverSettings.extensionRooms[extensionId].includes(roomName)) {
-      serverSettings.extensionRooms[extensionId].push(roomName);
-      saveSettings();
-      return true;
-    }
+// 创建房间
+function createRoom(socket, roomName) {
+  if (!socket || !socket.handshake || !socket.handshake.auth) {
+    console.warn('Invalid socket object in createRoom');
     return false;
+  }
+  const clientId = socket.handshake.auth.clientId;
+  if (!clientId) {
+    console.warn('Invalid clientId object in createRoom');
+    return false;
+  }
+
+  try {
+    // 使用 Socket.IO 的 join 方法
+    socket.join(roomName);
+    console.log(`Client ${clientId}-${socket.handshake.auth.clientType} created and joined room ${roomName}`);
+    return true;
   } catch (error) {
     console.error('Error in createRoom:', error);
-    return false; // 或者抛出错误 throw error;
+    return false;
   }
 }
 
-// 删除房间 (仅限扩展)
-function deleteRoom(extensionId, roomName) {
+// 删除房间
+function deleteRoom(socket, roomName) {
+  if (!socket || !socket.handshake || !socket.handshake.auth) {
+    console.warn('Invalid socket object in deleteRoom');
+    return false;
+  }
+  const clientId = socket.handshake.auth.clientId;
+  if (!clientId) {
+    console.warn('Invalid clientId object in deleteRoom');
+    return false;
+  }
+
+  // 阻止删除与 clientId 同名的房间
+  if (clientId === roomName) {
+    console.warn(`Client ${clientId} cannot delete room ${roomName} (same as client ID)`);
+    return false;
+  }
+
   try {
-    loadSettings();
-    if (!serverSettings.extensionRooms[extensionId]) {
-      return false;
-    }
+    // 获取房间内的所有客户端
+    const clientsInRoom = io.sockets.adapter.rooms.get(roomName); // 假设你已经有了 io 对象
 
-    const index = serverSettings.extensionRooms[extensionId].indexOf(roomName);
-    if (index === -1) {
-      return false;
-    }
-
-    serverSettings.extensionRooms[extensionId].splice(index, 1);
-
-    // 从所有客户端的房间列表中移除该房间
-    if (serverSettings.clientKeys) {
-      for (const clientId in serverSettings.clientKeys) {
-        const clientData = serverSettings.clientKeys[clientId];
-        const roomIndex = clientData.rooms.indexOf(roomName);
-        if (roomIndex > -1) {
-          clientData.rooms.splice(roomIndex, 1);
+    if (clientsInRoom) {
+      // 强制所有客户端离开房间
+      for (const clientSocketId of clientsInRoom) {
+        const clientSocket = io.sockets.sockets.get(clientSocketId); // 使用 io.sockets.sockets 获取 socket
+        if (clientSocket) {
+          clientSocket.leave(roomName);
         }
       }
     }
-    saveSettings();
+
+    console.log(`Room ${roomName} deleted by client ${clientId}`);
     return true;
   } catch (error) {
     console.error('Error in deleteRoom:', error);
-    return false; // 或者抛出错误 throw error;
+    return false;
   }
 }
 
-// 将客户端添加到房间 (由扩展调用)
-function addClientToRoom(extensionId, clientId, roomName) {
-  try {
-    loadSettings();
-    if (
-      !serverSettings.extensionRooms[extensionId] ||
-      !serverSettings.extensionRooms[extensionId].includes(roomName) ||
-      !serverSettings.clientKeys[clientId]
-    ) {
-      return false;
-    }
-
-    const clientData = serverSettings.clientKeys[clientId];
-    if (!clientData.rooms.includes(roomName)) {
-      clientData.rooms.push(roomName);
-      saveSettings();
-      return true;
-    }
+// 将客户端添加到房间
+function addClientToRoom(socket, roomName) {
+  if (!socket || !socket.handshake || !socket.handshake.auth) {
+    console.warn('Invalid socket object in addClientToRoom');
     return false;
+  }
+  const clientId = socket.handshake.auth.clientId;
+  if (!clientId) {
+    console.warn('Invalid clientId object in addClientToRoom');
+    return false;
+  }
+  try {
+    socket.join(roomName);
+    console.log(`Client ${clientId} added to room ${roomName}`);
+    return true;
   } catch (error) {
     console.error('Error in addClientToRoom:', error);
-    return false; // 或者抛出错误 throw error;
+    return false;
   }
 }
 
-// 将客户端从房间移除 (客户端自己调用，或由扩展调用)
-function removeClientFromRoom(clientId, roomName) {
+// 将客户端从房间移除
+function removeClientFromRoom(socket, roomName) {
+  if (!socket || !socket.handshake || !socket.handshake.auth) {
+    console.warn('Invalid socket object in removeClientFromRoom');
+    return false;
+  }
+  const clientId = socket.handshake.auth.clientId;
+
+  if (!clientId) {
+    console.warn('Invalid clientId object in removeClientFromRoom');
+    return false;
+  }
+  // 阻止客户端将自己从与其 ID 同名的房间中移除
+  if (clientId === roomName) {
+    console.warn(`Client ${clientId} cannot remove themselves from room ${roomName} (same as client ID)`);
+    return false;
+  }
+
   try {
-    loadSettings();
-    if (!serverSettings.clientKeys[clientId]) {
-      return false;
-    }
-
-    const clientData = serverSettings.clientKeys[clientId];
-    const index = clientData.rooms.indexOf(roomName);
-    if (index === -1) {
-      return false;
-    }
-
-    clientData.rooms.splice(index, 1);
-    saveSettings();
+    socket.leave(roomName);
+    console.log(`Client ${clientId} removed from room ${roomName}`);
     return true;
   } catch (error) {
     console.error('Error in removeClientFromRoom:', error);
-    return false; // 或者抛出错误 throw error;
+    return false;
   }
 }
 
-// 获取指定扩展的房间列表
-function getExtensionRooms(extensionId) {
+//检查客户端是否在房间内
+function isClientInRoom(clientId, roomName) {
   try {
-    loadSettings();
-    return serverSettings.extensionRooms[extensionId] || [];
+    const clients = io.sockets.adapter.rooms.get(roomName); // 获取房间内的所有客户端
+    if (!clients) {
+      return false; // 房间不存在
+    }
+
+    for (const clientSocketId of clients) {
+      const clientSocket = io.sockets.sockets.get(clientSocketId);
+      if (clientSocket && clientSocket.handshake.auth.clientId === clientId) {
+        return true; // 找到匹配的 clientId
+      }
+    }
+    return false;
   } catch (error) {
-    console.error('Error in getExtensionRooms:', error);
-    return []; // 或者抛出错误, 返回空数组作为默认值
-    //throw error;
+    console.error('Error in isClientInRoom:', error);
+    return false;
   }
 }
 
 // 获取所有房间
 function getAllRooms() {
   try {
-    loadSettings();
-    let allRooms = [];
-    for (const extensionId in serverSettings.extensionRooms) {
-      allRooms = [...allRooms, ...serverSettings.extensionRooms[extensionId]];
-    }
-    return [...new Set(allRooms)]; // 使用 Set 去重
+    const rooms = io.sockets.adapter.rooms; // 获取所有房间
+    return [...rooms.keys()]; // 返回房间名的数组
   } catch (error) {
     console.error('Error in getAllRooms:', error);
-    return []; // 或者抛出错误, 返回空数组
-    //throw error;
+    return [];
   }
 }
 
-// 新增：设置客户端描述
+// 获取指定客户端所在的房间列表 (可选, 根据需要实现)
+function getClientRooms(socket) {
+  if (!socket || !socket.rooms) {
+    console.warn('Invalid socket object in getClientRooms');
+    return [];
+  }
+  try {
+    return Array.from(socket.rooms);
+  } catch (error) {
+    console.error('Error in getClientRooms:', error);
+    return [];
+  }
+}
+
+// 新增：设置客户端描述 (可选, 根据需要决定是否保留)
 function setClientDescription(clientId, description) {
-  try {
-    loadSettings();
-    if (serverSettings.clientKeys[clientId]) {
-      serverSettings.clientKeys[clientId].description = description;
-      saveSettings();
-      return; // 明确的返回
-    }
-    console.warn(`Client ID ${clientId} not found in setClientDescription.`);
-  } catch (error) {
-    console.error('Error in setClientDescription:', error);
-    // 可以选择不返回值, 或者返回 false, 或者抛出错误
-  }
+  console.warn('This Function is Deprecated, and do nothing.');
 }
 
-// 新增：获取客户端描述
+// 新增：获取客户端描述 (可选, 根据需要决定是否保留)
 function getClientDescription(clientId) {
-  try {
-    loadSettings();
-    return serverSettings.clientKeys[clientId] ? serverSettings.clientKeys[clientId].description : null;
-  } catch (error) {
-    console.error('Error in getClientDescription:', error);
-    return null; // 或者抛出错误, 返回null
-    //throw error;
-  }
+  console.warn('This Function is Deprecated, and do nothing.');
 }
 
 export {
@@ -193,8 +212,10 @@ export {
   deleteRoom,
   addClientToRoom,
   removeClientFromRoom,
-  getExtensionRooms,
+  isClientInRoom,
   getAllRooms,
-  setClientDescription,
-  getClientDescription,
+  getClientRooms, // 可选
+  setClientDescription, // 可选
+  getClientDescription, // 可选
 };
+
