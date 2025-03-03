@@ -136,10 +136,10 @@ function removeClientFromRoom(socket, roomName) {
     return false;
   }
   // 阻止客户端将自己从与其 ID 同名的房间中移除
-  if (clientId === roomName) {
-    console.warn(`Client ${clientId} cannot remove themselves from room ${roomName} (same as client ID)`);
-    return false;
-  }
+  //if (clientId === roomName) {
+  //  console.warn(`Client ${clientId} cannot remove themselves from room ${roomName} (same as client ID)`);
+  //  return false;
+  //}
 
   try {
     socket.leave(roomName);

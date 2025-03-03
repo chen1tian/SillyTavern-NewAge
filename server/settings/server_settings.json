@@ -9,5 +9,6 @@
   "queryParameters": {},
   "transport": "websocket",
   "extensionRooms": {},
-  "clientKeys": {}
+  "clientKeys": {},
+  "networkSafe":true
 }

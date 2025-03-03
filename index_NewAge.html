@@ -1,122 +1,144 @@
 <div class="socketio-test-extension-settings">
   <div class="inline-drawer">
     <div class="inline-drawer-toggle inline-drawer-header">
-      <b>Socket.IO 测试</b>
+      <b>SillyTavern-NewAge</b>
       <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
     </div>
     <div class="inline-drawer-content">
 
-      <!-- 新增：登录界面 -->
-      <div id="login-form" class="login-section">
-        <label for="socketio-password">密码:</label>
-        <input type="password" id="socketio-password" class="text_pole">
+      <!-- 登录界面(暂时放弃) -->
+      <!--<div id="ST-NewAge-login-form" class="ST-NewAge-login-section">
+        <label for="ST-NewAge-socketio-password">密码:</label>
+        <input type="password" id="ST-NewAge-socketio-password" class="ST-NewAge-text_pole">
         <label>
-          <input type="checkbox" id="socketio-rememberMe">
-          <small class="checkName">记住我</small>
+          <input type="checkbox" id="ST-NewAge-socketio-rememberMe">
+          <small class="ST-NewAge-checkName">记住我</small>
         </label>
-        <button id="socketio-loginBtn" class="menu_button">登录</button>
-        <div id="login-message"></div>
-      </div>
+        <button id="ST-NewAge-socketio-loginBtn" class="ST-NewAge-menu_button">登录</button>
+        <div id="ST-NewAge-login-message"></div>
+      </div>-->
+
 
       <!-- 操作按钮 -->
-      <div class="button-group">
-        <button id="socketio-logoutBtn" class="menu_button" disabled>退出登录</button>
-        <button id="socketio-testBtn" class="menu_button" disabled>测试连接</button>
+      <div class="ST-NewAge-button-group">
+        <!--<button id="ST-NewAge-socketio-logoutBtn" class="ST-NewAge-menu_button" disabled>退出登录</button>-->
+        <button id="ST-NewAge-socketio-testBtn" class="ST-NewAge-menu_button" disabled>测试连接</button>
       </div>
 
       <!-- 可折叠的设置部分 -->
-      <details class="animated-details">
+      <details class="ST-NewAge-animated-details">
         <summary><b>设置</b></summary>
-        <div class="settings-grid">
-          <label for="socketio-extensionName">扩展识别名字:</label>
-          <input type="text" id="socketio-extensionName" class="text_pole" placeholder="Unique Extension Name" readonly>
+        <div class="ST-NewAge-settings-grid">
+          <label for="ST-NewAge-socketio-extensionName">扩展ID:</label>
+          <input type="text" id="ST-NewAge-socketio-extensionName" class="ST-NewAge-text_pole"
+            placeholder="Unique Extension Name" readonly>
 
-          <label for="socketio-localPortInput">扩展端口:</label>
-          <input type="number" id="socketio-localPortInput" class="text_pole" readonly>
+          <label for="ST-NewAge-socketio-localPortInput">扩展端口:</label>
+          <input type="number" id="ST-NewAge-socketio-localPortInput" class="ST-NewAge-text_pole" readonly>
 
-          <label for="socketio-serverPortInput">服务器端口:</label>
-          <input type="number" id="socketio-serverPortInput" class="text_pole" value="4000">
+          <label for="ST-NewAge-socketio-serverPortInput">服务器端口:</label>
+          <input type="number" id="ST-NewAge-socketio-serverPortInput" class="ST-NewAge-text_pole" value="4000">
 
-          <label for="socketio-serverAddressInput">服务器地址:</label>
-          <input type="text" id="socketio-serverAddressInput" class="text_pole" value="http://localhost">
+          <label for="ST-NewAge-socketio-serverAddressInput">服务器地址:</label>
+          <input type="text" id="ST-NewAge-socketio-serverAddressInput" class="ST-NewAge-text_pole"
+            value="http://localhost">
+
+          <label for="ST-NewAge-socketio-networkSafeMode">网络安全模式:</label>
+          <div class="ST-NewAge-checkbox-container">
+            <input type="checkbox" id="ST-NewAge-socketio-networkSafeMode" checked>
+            <span class="ST-NewAge-tooltip-text" style="color: red;">
+              <b>警告：</b> 启用此模式将禁用身份验证。<br>请确保您所在的网络环境足够安全，无需任何认证手段。
+            </span>
+          </div>
 
           <!-- 服务器房间管理 -->
-          <div class="server-room-management">
+          <div class="ST-NewAge-server-room-management">
             <label>服务器房间管理:</label>
-            <div class="room-actions">
-              <button id="socketio-refreshRoomsBtn" class="menu_button">刷新</button>
+            <div class="ST-NewAge-room-actions">
+              <button id="ST-NewAge-socketio-refreshRoomsBtn" class="ST-NewAge-menu_button">刷新</button>
             </div>
-            <div class="room-table-wrapper">
-              <table id="socketio-roomTable" class="data-table">
+            <div class="ST-NewAge-room-table-wrapper">
+              <table id="ST-NewAge-socketio-roomTable" class="ST-NewAge-data-table">
                 <thead>
                   <tr>
                     <th>房间名</th>
                     <th>客户端</th>
-                    <th>操作</th> <!-- 新增：操作列 -->
+                    <th>操作</th>
                   </tr>
                 </thead>
-                <tbody id="socketio-roomList">
+                <tbody id="ST-NewAge-socketio-roomList">
                   <!-- 房间列表将在这里动态生成 -->
                 </tbody>
               </table>
             </div>
-            <div id="room-details">
+            <!-- 次级菜单 -->
+            <div class="ST-NewAge-room-submenu" style="display: none;">
+              <button class="ST-NewAge-menu_button ST-NewAge-details-btn">细节</button>
+              <button class="ST-NewAge-menu_button ST-NewAge-leave-btn">踢出</button>
+              <button class="ST-NewAge-menu_button ST-NewAge-join-btn">加入</button>
+            </div>
+            <div id="ST-NewAge-room-details">
               <!-- 房间详情 (客户端列表) -->
             </div>
           </div>
 
           <!-- 客户端密钥管理 -->
-          <div class="client-key-management">
-            <label for="socketio-clientList">客户端:</label>
-            <select id="socketio-clientList" class="text_pole">
+          <div class="ST-NewAge-client-key-management">
+            <label for="ST-NewAge-socketio-clientList">客户端:</label>
+            <select id="ST-NewAge-socketio-clientList" class="ST-NewAge-text_pole">
               <!-- 客户端列表 -->
             </select>
-            <div class="key-display">
-              <span id="socketio-clientKeyDisplay"></span>
-              <button id="socketio-copyKeyBtn" class="menu_button">复制密钥</button>
+            <div class="ST-NewAge-key-display">
+              <span id="ST-NewAge-socketio-clientKeyDisplay"></span>
             </div>
-            <button id="socketio-generateKeyBtn" class="menu_button">生成密钥</button>
-            <button id="socketio-removeKeyBtn" class="menu_button">删除密钥</button>
+            <label>密钥管理:</label>
+            <div class="ST-NewAge-button-group">
+              <button id="ST-NewAge-socketio-copyKeyBtn" class="ST-NewAge-menu_button">复制</button>
+              <button id="ST-NewAge-socketio-generateKeyBtn" class="ST-NewAge-menu_button">生成</button>
+              <button id="ST-NewAge-socketio-removeKeyBtn" class="ST-NewAge-menu_button">删除</button>
+            </div>
+            
           </div>
         </div>
-
-        <div class="save-button-container">
-          <button id="socketio-saveSettingsBtn" class="menu_button">保存</button>
+        
+        <div class="ST-NewAge-save-button-container">
+          <button id="ST-NewAge-socketio-saveSettingsBtn" class="ST-NewAge-menu_button">保存</button>
         </div>
+        
       </details>
+      
 
       <!-- 可折叠的功能部分 -->
-      <details class="animated-details">
+      <details class="ST-NewAge-animated-details">
         <summary><b>功能</b></summary>
-        <div class="function-section">
-          <div class="message-handling-section" id="message-handling-options">
-            <label title="启用/禁用默认的消息转发行为。
-        如果启用，则消息转发行为由预设中的“流式传输”开关的状态决定。
-        如果禁用，则可以单独配置流式和非流式转发。">
-              <input type="checkbox" id="socketio-defaultForwarding" checked>
-              <small class="checkName">默认转发行为</small>
+        <div class="ST-NewAge-function-section">
+          <div class="ST-NewAge-message-handling-section" id="ST-NewAge-message-handling-options">
+            <label class="ST-NewAge-checkbox-label"
+              title="启用/禁用默认的消息转发行为。如果启用，则消息转发行为由预设中的“流式传输”开关的状态决定。如果禁用，则可以单独配置流式和非流式转发。">
+              <input type="checkbox" id="ST-NewAge-socketio-defaultForwarding" checked>
+              <small class="ST-NewAge-checkName">默认转发行为</small>
             </label>
-            <label title="启用/禁用 LLM 消息的流式转发。
-        流式转发会将每个生成的 token 分块发送到服务器。">
-              <input type="checkbox" id="socketio-enableStream">
-              <small class="checkName">LLM 消息转发 (流式)</small>
-            </label>
-            <label title="启用/禁用 LLM 消息的非流式转发。
-        非流式转发会将整个生成的消息一次性发送到服务器。">
-              <input type="checkbox" id="socketio-enableNonStream">
-              <small class="checkName">LLM 消息转发 (非流式)</small>
-            </label>
+            <div class="ST-NewAge-indent">
+              <label class="ST-NewAge-checkbox-label" title="启用/禁用 LLM 消息的流式转发。流式转发会将每个生成的 token 分块发送到服务器。">
+                <input type="checkbox" id="ST-NewAge-socketio-enableStream">
+                <small class="ST-NewAge-checkName">LLM 消息转发 (流式)</small>
+              </label>
+              <label class="ST-NewAge-checkbox-label" title="启用/禁用 LLM 消息的非流式转发。非流式转发会将整个生成的消息一次性发送到服务器。">
+                <input type="checkbox" id="ST-NewAge-socketio-enableNonStream">
+                <small class="ST-NewAge-checkName">LLM 消息转发 (非流式)</small>
+              </label>
+            </div>
           </div>
         </div>
       </details>
 
       <!-- Log Table -->
-      <details class="animated-details">
+      <details class="ST-NewAge-animated-details">
         <summary><b>日志</b></summary>
-        <div class="log-section">
-          <div class="log-filter-container">
-            <label for="socketio-logFilter">筛选:</label>
-            <select id="socketio-logFilter">
+        <div class="ST-NewAge-log-section">
+          <div class="ST-NewAge-log-filter-container">
+            <label for="ST-NewAge-socketio-logFilter">筛选:</label>
+            <select id="ST-NewAge-socketio-logFilter">
               <option value="all">全部</option>
               <option value="success">成功</option>
               <option value="warning">警告</option>
@@ -127,19 +149,19 @@
             </select>
           </div>
 
-          <div class="log-table-wrapper">
-            <table id="socketio-logTable" class="data-table">
+          <div class="ST-NewAge-log-table-wrapper">
+            <table id="ST-NewAge-socketio-logTable" class="ST-NewAge-data-table">
               <thead>
                 <tr>
-                  <th class="log-time">时间</th>
-                  <th class="log-type">类型</th>
-                  <th class="log-message">消息</th>
-                  <th class="log-source">发送方</th>
-                  <th class="log-request-id">请求 ID</th>
-                  <th class="log-output-id">输出 ID</th>
+                  <th class="ST-NewAge-log-time">时间</th>
+                  <th class="ST-NewAge-log-type">类型</th>
+                  <th class="ST-NewAge-log-message">消息</th>
+                  <th class="ST-NewAge-log-source">发送方</th>
+                  <th class="ST-NewAge-log-request-id">请求 ID</th>
+                  <th class="ST-NewAge-log-output-id">输出 ID</th>
                 </tr>
               </thead>
-              <tbody id="socketio-logTableBody">
+              <tbody id="ST-NewAge-socketio-logTableBody">
                 <!-- Log messages -->
               </tbody>
             </table>
@@ -147,7 +169,7 @@
         </div>
       </details>
 
-      <hr class="sysHR" />
+      <hr class="ST-NewAge-sysHR" />
     </div>
   </div>
 </div>
