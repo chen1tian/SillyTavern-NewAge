@@ -1,7 +1,7 @@
 // server/dist/Keys.js
 
 import fs from 'fs';
-import { uuidv4 } from '../../lib/uuid/uuid.js';
+import { uuidv4 } from '../lib/uuid/uuid.js';
 import bcrypt from 'bcrypt';
 
 import { fileURLToPath } from 'url';
@@ -59,18 +59,6 @@ async function isValidClientKey(clientId, key) {
   return clientData && (await bcrypt.compare(key, clientData.key));
 }
 
-// 获取客户端的房间
-function getClientRooms(clientId) {
-  return clientKeys[clientId] ? clientKeys[clientId].rooms : [];
-}
-// 设置客户端房间
-function setClientRooms(clientId, rooms) {
-  if (clientKeys[clientId]) {
-    clientKeys[clientId].rooms = rooms;
-    saveClientKeys();
-  }
-}
-
 //新增：获取所有客户端信息
 function getAllClientKeys() {
     return clientKeys;
@@ -85,8 +73,6 @@ export {
   generateAndStoreClientKey,
   removeClientKey,
   isValidClientKey,
-  getClientRooms,
-  setClientRooms,
   getAllClientKeys,
   getClientKey,
   clientKeys,

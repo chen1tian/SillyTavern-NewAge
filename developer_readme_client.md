@@ -5,9 +5,10 @@
 
 ## 目录
 
-- [SillyTavern-NewAge 服务器客户端开发文档 (非 SillyTavern 扩展)](#sillytavern-newage-服务器客户端开发文档-非-sillytavern-扩展)
+- [SillyTavern-NewAge 服务器客户端开发文档](#sillytavern-newage-服务器客户端开发文档)
   - [目录](#目录)
   - [概述](#概述)
+  - [客户端设置：](#客户端设置)
   - [连接和认证](#连接和认证)
     - [连接参数](#连接参数)
     - [认证流程 ( /auth 命名空间)](#认证流程--auth-命名空间)
@@ -29,15 +30,27 @@
   - [客户端管理 ( /clients 命名空间)](#客户端管理--clients-命名空间)
   - [房间管理 ( /rooms 命名空间)](#房间管理--rooms-命名空间)
   - [错误处理](#错误处理)
-  - [消息格式](#消息格式)
+  - [其他消息格式](#其他消息格式)
   - [示例代码 (JavaScript)](#示例代码-javascript)
-  - [注意事项](#注意事项-1)
+  - [注意事项](#注意事项)
 
 ## 概述
 
-SillyTavern-NewAge 服务器是一个基于 Node.js 和 Socket.IO 的实时通信服务器，主要用于处理来自 SillyTavern 扩展和其他客户端的请求，并与语言模型（LLM）交互。非 SillyTavern 客户端可以通过 Socket.IO 与服务器建立连接，发送请求并接收响应。
+SillyTavern-NewAge 服务器是一个基于 Node.js 和 Socket.IO 的实时通信服务器，主要用于处理来自 SillyTavern 扩展和其他客户端的请求，并与大语言模型（LLM）交互。非 SillyTavern 客户端可以通过 Socket.IO 与服务器建立连接，发送请求并接收响应。
 
 服务器通过不同的命名空间（namespaces）来组织不同的功能。客户端需要连接到相应的命名空间才能使用特定功能。
+
+## 客户端设置：
+  *   ### 如果不提前创建好JSON文件，服务器则无法连接你的客户端！！！
+  *   请在 `/server/settings` 中手动或者在你的代码中调用 `/server/dist/function_call.js` 的 `saveJsonToFile` 自动以创建一个JSON文件，其名字最好与 `clientId` 同名。
+  *   在JSON中，可参考如下写法：
+  ```JSON
+  {
+    "clientId": "frontendExample",
+    "isTrust": true
+  }
+  ```
+  *   其中，`isTrust` 必须为 `true` ，否则服务器不会认为你这个客户端是可信的。
 
 ## 连接和认证
 
@@ -55,27 +68,23 @@ SillyTavern-NewAge 服务器是一个基于 Node.js 和 Socket.IO 的实时通�
     ```javascript
     {
       clientType: 'yourClientType', // 客户端类型 (见下文)
-      clientId: 'yourClientId',     // 客户端的唯一 ID (由客户端生成)
+      clientId: 'yourClientId',     // 客户端的唯一 ID (由客户端生成，最好起一个辨别度高并且不容易重名的名字)
       key: 'yourClientKey',       // 客户端密钥 (用于验证客户端身份)
       desc: 'yourClientDescription' // 客户端描述 (可选)
     }
     ```
-    在初次连接时，如果不知道`key`，可以将`key`设置为`getKey`，服务器会生成一个key，并通过message返回。
+    在连接时，如果不知道`key`，请前往扩展端生成并复制一个key
 
 2.  **密钥验证**:
     *   服务器会验证 `clientId` 和 `key` 是否匹配。
-    *   如果密钥无效，服务器会将客户端分配到一个临时房间，并通过 `MSG_TYPE.TEMP_ROOM_ASSIGNED` 事件通知客户端。
+    *   如果密钥无效，则会直接断连。
     *   如果密钥有效，客户端将加入以其 `clientId` 命名的房间。
-
-3. **断开与重连**:
-    *  服务器会在客户端断开连接后尝试自动重连。
-    *  如果重连失败, 会删除客户端的房间。
 
 ### 客户端类型
 
 `clientType` 可以是以下值之一：
 
-*   `'extension'`： SillyTavern 扩展 (通常不需要使用此类型，除非你要模拟 SillyTavern 扩展的行为)。
+*   `'extension'`： SillyTavern 扩展 (请不要使用此类型)。
 *   `'monitor'`： 监控客户端 (用于监控服务器状态)。
 *   `'yourClientType'`： 你可以自定义客户端类型，例如 `'web-app'`, `'desktop-app'`, `'mobile-app'` 等。
 
@@ -119,15 +128,7 @@ SillyTavern-NewAge 服务器是一个基于 Node.js 和 Socket.IO 的实时通�
 | `MSG_TYPE.FUNCTION_CALL` | (客户端/服务器) 发送或接收函数调用请求。                | `{ requestId: string, functionName: string, args: any[], target: string }`                             |
 
 ### /clients
-主要用于服务器对客户端进行管理，普通客户端不常用。
-
-| 事件名                         | 描述                                          | 数据                                             |
-| ------------------------------ | :-------------------------------------------- | :----------------------------------------------- |
-| `MSG_TYPE.GET_CLIENT_KEY`       | (客户端/服务器) 获取指定客户端的密钥          | `{ clientId: string }`                            |
-| `MSG_TYPE.GENERATE_CLIENT_KEY`  | (客户端/服务器) 生成指定客户端的密钥          | `{ clientId: string }`                            |
-| `MSG_TYPE.REMOVE_CLIENT_KEY`   | (客户端/服务器) 移除指定客户端的密钥          | `{ clientId: string }`                            |
-| `getClientList`               | (客户端/服务器) 获取所有客户端的列表            | 无                                               |
-| `getClientsInRoom`             | (客户端/服务器) 获取指定房间中的客户端列表    | `roomName`: string                               |
+主要用于服务器对客户端进行管理，普通客户端不常用。                   
 
 ### /rooms
  客户端通常不需要直接和`/rooms`交互，`/rooms`主要用于管理房间和客户端。
@@ -144,10 +145,10 @@ SillyTavern-NewAge 服务器是一个基于 Node.js 和 Socket.IO 的实时通�
     ```javascript
     const socket = io(`${serverAddress}:${serverPort}/llm`, {
       auth: {
-        clientType: 'yourClientType',
-        clientId: 'yourClientId',
-        key: 'yourClientKey',
-        desc: 'yourClientDescription'
+        clientType: 'yourClientType',//必需
+        clientId: 'yourClientId',//必需
+        key: 'yourClientKey',//必需
+        desc: 'yourClientDescription'//可选
       }
     });
     ```
@@ -159,7 +160,9 @@ SillyTavern-NewAge 服务器是一个基于 Node.js 和 Socket.IO 的实时通�
     socket.emit(MSG_TYPE.LLM_REQUEST, {
       target: 'targetSillyTavernClientId', // 目标 SillyTavern 的 clientId
       requestId: requestId,
+      message: message,//输入的文本信息
       // ... 其他 LLM 请求参数 (取决于你的 LLM 接口) ...
+      //当前仅支持文本请求，前端助手支持的更多键值在将来会逐步完善
     });
     ```
 
@@ -238,7 +241,7 @@ socket.on(MSG_TYPE.ERROR, (error) => {
 });
 ```
 
-## 消息格式
+## 其他消息格式
 
 客户端和服务器之间的消息通常遵循以下 JSON 格式：
 

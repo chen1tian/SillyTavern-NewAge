@@ -4,19 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="d1d6f788-9b1c-478d-a7ae-0df505bf5ca6" name="更改" comment="2025.2.28-debug安全性相关">
-      <change afterPath="$PROJECT_DIR$/developer_readme_client.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/index_NewAge.js" beforeDir="false" afterPath="$PROJECT_DIR$/index_NewAge.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/lib/constants.js" beforeDir="false" afterPath="$PROJECT_DIR$/lib/constants.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/lib/non_stream.js" beforeDir="false" afterPath="$PROJECT_DIR$/lib/non_stream.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/lib/stream.js" beforeDir="false" afterPath="$PROJECT_DIR$/lib/stream.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/lib/uuid/uuid.js" beforeDir="false" afterPath="$PROJECT_DIR$/lib/uuid/uuid.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/dist/Rooms.js" beforeDir="false" afterPath="$PROJECT_DIR$/server/dist/Rooms.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/keys/clients.json" beforeDir="false" afterPath="$PROJECT_DIR$/server/keys/clients.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/server.js" beforeDir="false" afterPath="$PROJECT_DIR$/server/server.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/settings/SillyTavern-8000-settings.json" beforeDir="false" afterPath="$PROJECT_DIR$/server/settings/SillyTavern-8000-settings.json" afterDir="false" />
-    </list>
+    <list default="true" id="d1d6f788-9b1c-478d-a7ae-0df505bf5ca6" name="更改" comment="2025.3.03-插件界面，登陆机制暂停使用" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -236,7 +224,15 @@
       <option name="project" value="LOCAL" />
       <updated>1740676070102</updated>
     </task>
-    <option name="localTasksCounter" value="21" />
+    <task id="LOCAL-00021" summary="2025.3.03-插件界面，登陆机制暂停使用">
+      <option name="closed" value="true" />
+      <created>1741015550783</created>
+      <option name="number" value="00021" />
+      <option name="presentableId" value="LOCAL-00021" />
+      <option name="project" value="LOCAL" />
+      <updated>1741015550783</updated>
+    </task>
+    <option name="localTasksCounter" value="22" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -269,6 +265,7 @@
     <MESSAGE value="2025.2.26-debug" />
     <MESSAGE value="2025.2.27-重构命名空间" />
     <MESSAGE value="2025.2.28-debug安全性相关" />
-    <option name="LAST_COMMIT_MESSAGE" value="2025.2.28-debug安全性相关" />
+    <MESSAGE value="2025.3.03-插件界面，登陆机制暂停使用" />
+    <option name="LAST_COMMIT_MESSAGE" value="2025.3.03-插件界面，登陆机制暂停使用" />
   </component>
 </project>

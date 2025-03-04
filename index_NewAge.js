@@ -215,6 +215,7 @@ function manageSockets(socketCreationFunction) {
     cleanupAllSockets: cleanupAllSockets,
   };
 }
+
 const sockets = new Map();
 
 function createNamedSocket(namespace, authData, autoConnect = false, reconnection = false, reconnectionAttempts = 3) {
@@ -330,7 +331,7 @@ async function checkRememberMe() {
       clientId: clientId,
       desc: clientDesc,
     },
-    false,
+    false,true
   ); // 不自动连接
 
   tempSocket.connect(); // 手动连接
@@ -358,7 +359,7 @@ async function checkRememberMe() {
             $('.ST-NewAge-animated-details').show();
             connectToServer(); //
           } else {
-            // 未记住登录，显示登录界面(暂时强制显示，登陆界面被暂时放弃)
+            // 未记住登录，显示登录界面(暂时强制显示，因为登陆界面被暂时放弃)
             /*
             $('#login-form').show();
             $('.button-group').hide();
@@ -704,7 +705,6 @@ async function connectToServer() {
 
       // 刷新房间和客户端列表
       refreshRoomList();
-      //updateClientList();
     });
 
     // 其他事件监听 (可选, 如果需要在默认命名空间监听其他事件)
@@ -1151,7 +1151,7 @@ async function handleLlmRequest(data) {
   };
 
   // 将请求添加到队列 / Add the request to the queue
-  llmRequestQueue.push({ generateConfig, requestId: data.requestId, outputId: data.outputId, target: data.target });
+  llmRequestQueue.push({ generateConfig, requestId: data.requestId, target: data.target });
   processRequest(); // 尝试处理请求 / Try to process the request
 }
 
