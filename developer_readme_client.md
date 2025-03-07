@@ -8,7 +8,7 @@
 - [SillyTavern-NewAge 服务器客户端开发文档](#sillytavern-newage-服务器客户端开发文档)
   - [目录](#目录)
   - [概述](#概述)
-  - [客户端设置：](#客户端设置)
+  - [客户端设置](#客户端设置)
   - [连接和认证](#连接和认证)
     - [连接参数](#连接参数)
     - [认证流程 ( /auth 命名空间)](#认证流程--auth-命名空间)
@@ -40,30 +40,34 @@ SillyTavern-NewAge 服务器是一个基于 Node.js 和 Socket.IO 的实时通�
 
 服务器通过不同的命名空间（namespaces）来组织不同的功能。客户端需要连接到相应的命名空间才能使用特定功能。
 
-## 客户端设置：
-  *   ### 如果不提前创建好JSON文件，服务器则无法连接你的客户端！！！
-  *   请在 `/server/settings` 中手动或者在你的代码中调用 `/server/dist/function_call.js` 的 `saveJsonToFile` 自动以创建一个JSON文件，其名字最好与 `clientId` 同名。
-  *   在JSON中，可参考如下写法：
+## 客户端设置
+
+- ### 如果不提前创建好JSON文件，服务器则无法连接你的客户端
+
+- 请在 `/server/settings` 中手动或者在你的代码中调用 `/server/dist/function_call.js` 的 `saveJsonToFile` 自动以创建一个JSON文件，其名字最好与 `clientId` 同名。
+- 在JSON中，可参考如下写法：
+
   ```JSON
   {
     "clientId": "frontendExample",
     "isTrust": true
   }
   ```
-  *   其中，`isTrust` 必须为 `true` ，否则服务器不会认为你这个客户端是可信的。
+
+- 其中，`isTrust` 必须为 `true` ，否则服务器不会认为你这个客户端是可信的。
 
 ## 连接和认证
 
 ### 连接参数
 
-*   **服务器地址**:  通常是 `http://localhost` 或服务器的 IP 地址。
-*   **服务器端口**:  默认为 `4000`，但可以在服务器设置中配置。
-*   **Socket.IO 路径**: `/socket.io` (通常不需要修改)。
-*   **传输方式**:  `websocket` (推荐)。
+- **服务器地址**:  通常是 `http://localhost` 或服务器的 IP 地址。
+- **服务器端口**:  默认为 `4000`，但可以在服务器设置中配置。
+- **Socket.IO 路径**: `/socket.io` (通常不需要修改)。
+- **传输方式**:  `websocket` (推荐)。
 
 ### 认证流程 ( /auth 命名空间)
 
-1.  **连接 /auth 命名空间**:  客户端在连接时需要提供以下认证信息 (在 `auth` 对象中):
+1. **连接 /auth 命名空间**:  客户端在连接时需要提供以下认证信息 (在 `auth` 对象中):
 
     ```javascript
     {
@@ -73,20 +77,21 @@ SillyTavern-NewAge 服务器是一个基于 Node.js 和 Socket.IO 的实时通�
       desc: 'yourClientDescription' // 客户端描述 (可选)
     }
     ```
+
     在连接时，如果不知道`key`，请前往扩展端生成并复制一个key
 
-2.  **密钥验证**:
-    *   服务器会验证 `clientId` 和 `key` 是否匹配。
-    *   如果密钥无效，则会直接断连。
-    *   如果密钥有效，客户端将加入以其 `clientId` 命名的房间。
+2. **密钥验证**:
+    - 服务器会验证 `clientId` 和 `key` 是否匹配。
+    - 如果密钥无效，则会直接断连。
+    - 如果密钥有效，客户端将加入以其 `clientId` 命名的房间。
 
 ### 客户端类型
 
 `clientType` 可以是以下值之一：
 
-*   `'extension'`： SillyTavern 扩展 (请不要使用此类型)。
-*   `'monitor'`： 监控客户端 (用于监控服务器状态)。
-*   `'yourClientType'`： 你可以自定义客户端类型，例如 `'web-app'`, `'desktop-app'`, `'mobile-app'` 等。
+- `'extension'`： SillyTavern 扩展 (请不要使用此类型)。
+- `'monitor'`： 监控客户端 (用于监控服务器状态)。
+- `'yourClientType'`： 你可以自定义客户端类型，例如 `'web-app'`, `'desktop-app'`, `'mobile-app'` 等。
 
 ## 命名空间和事件
 
@@ -128,19 +133,22 @@ SillyTavern-NewAge 服务器是一个基于 Node.js 和 Socket.IO 的实时通�
 | `MSG_TYPE.FUNCTION_CALL` | (客户端/服务器) 发送或接收函数调用请求。                | `{ requestId: string, functionName: string, args: any[], target: string }`                             |
 
 ### /clients
-主要用于服务器对客户端进行管理，普通客户端不常用。                   
+
+主要用于服务器对客户端进行管理，普通客户端不常用。
 
 ### /rooms
+
  客户端通常不需要直接和`/rooms`交互，`/rooms`主要用于管理房间和客户端。
- 
+
 ### /sillytavern
+
 这个命名空间主要用于服务器和 SillyTavern 扩展之间的通讯, 客户端通常不需要直接和 `/sillytavern` 命名空间交互。
 
 ## LLM 交互 ( /llm 命名空间)
 
 ### 发送 LLM 请求
 
-1.  **连接 /llm 命名空间**:
+1. **连接 /llm 命名空间**:
 
     ```javascript
     const socket = io(`${serverAddress}:${serverPort}/llm`, {
@@ -153,7 +161,7 @@ SillyTavern-NewAge 服务器是一个基于 Node.js 和 Socket.IO 的实时通�
     });
     ```
 
-2.  **发送 `MSG_TYPE.LLM_REQUEST` 事件**:
+2. **发送 `MSG_TYPE.LLM_REQUEST` 事件**:
 
     ```javascript
     const requestId = generateUniqueId(); // 生成一个唯一的请求 ID
@@ -161,14 +169,15 @@ SillyTavern-NewAge 服务器是一个基于 Node.js 和 Socket.IO 的实时通�
       target: 'targetSillyTavernClientId', // 目标 SillyTavern 的 clientId
       requestId: requestId,
       message: message,//输入的文本信息
-      // ... 其他 LLM 请求参数 (取决于你的 LLM 接口) ...
+      requestType: newMessage,//用于控制生成文本的行为，有两种类型：生成新的文本(newMessage);重新生成(regenerateMessage)
+      // ... 其他 LLM 请求参数 (取决于LLM 接口) ...
       //当前仅支持文本请求，前端助手支持的更多键值在将来会逐步完善
     });
     ```
 
 ### 接收流式响应
 
-1.  **监听 `streamed_data` 事件**:
+1. **监听 `streamed_data` 事件**:
 
     ```javascript
     import ss from '@sap_oss/node-socketio-stream';
@@ -194,7 +203,9 @@ SillyTavern-NewAge 服务器是一个基于 Node.js 和 Socket.IO 的实时通�
     ```
 
 ### 接收非流式响应
+
 直接通过`message`事件来接收：
+
 ```javascript
     socket.on('message', (data) => {
         console.log(data)
@@ -203,9 +214,9 @@ SillyTavern-NewAge 服务器是一个基于 Node.js 和 Socket.IO 的实时通�
 
 ## 函数调用 ( /function\_call 命名空间)
 
-1.  **连接 /function\_call 命名空间**:  (与连接 /llm 命名空间类似)。
+1. **连接 /function\_call 命名空间**:  (与连接 /llm 命名空间类似)。
 
-2.  **发送 `MSG_TYPE.FUNCTION_CALL` 事件**:
+2. **发送 `MSG_TYPE.FUNCTION_CALL` 事件**:
 
     ```javascript
     const requestId = generateUniqueId();
@@ -225,9 +236,11 @@ SillyTavern-NewAge 服务器是一个基于 Node.js 和 Socket.IO 的实时通�
     ```
 
 ## 客户端管理 ( /clients 命名空间)
+
 普通客户端不常用。
 
 ## 房间管理 ( /rooms 命名空间)
+
 普通客户端不常用。
 
 ## 错误处理
@@ -316,9 +329,9 @@ socket.on('disconnect', (reason) => {
 
 ## 注意事项
 
-*   **安全性**:  客户端密钥 (`key`) 应该安全地存储，不要暴露在客户端代码中。  考虑使用环境变量或其他安全机制。
-*   **错误处理**:  务必处理 Socket.IO 和服务器可能发生的各种错误。
-*   **请求 ID**:  对于每个请求，都应该生成一个唯一的 `requestId`，以便将响应与请求正确地关联起来。
-*   **目标 SillyTavern**:  在发送 LLM 请求或函数调用时，需要指定目标 SillyTavern 的 `clientId` (除非你调用的是服务器端函数)。
-*  **`@sap_oss/node-socketio-stream`**: 此库是必须的, 用于处理服务器和客户端之间的流式数据传输。
-* **消息类型和常量**：请参考`lib/constants.js`的内容。
+- **安全性**:  客户端密钥 (`key`) 应该安全地存储，不要暴露在客户端代码中。  考虑使用环境变量或其他安全机制。
+- **错误处理**:  务必处理 Socket.IO 和服务器可能发生的各种错误。
+- **请求 ID**:  对于每个请求，都应该生成一个唯一的 `requestId`，以便将响应与请求正确地关联起来。
+- **目标 SillyTavern**:  在发送 LLM 请求或函数调用时，需要指定目标 SillyTavern 的 `clientId` (除非你调用的是服务器端函数)。
+- **`@sap_oss/node-socketio-stream`**: 此库是必须的, 用于处理服务器和客户端之间的流式数据传输。
+- **消息类型和常量**：请参考`lib/constants.js`的内容。

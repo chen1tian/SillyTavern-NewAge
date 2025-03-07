@@ -5,7 +5,14 @@ import { io } from './lib/Socket.io/socket.io.js';
 import { uuidv4 } from './lib/uuid/uuid.js';
 import { eventSource, event_types } from '../../../../script.js';
 import { loadFileToDocument, delay } from '../../../../scripts/utils.js';
-import * as messageForwarder from './dist/message_forwarder.js';
+import {
+  chat,
+  messageFormatting,
+  reloadCurrentChat,
+  saveChatConditional,
+  substituteParamsExtended,
+} from '../../../../../../script.js';
+import * as messageForwarder from './dist/NewAge/message_forwarder.js';
 import { handleIframe } from './dist/iframe_server/index.js';
 
 // 导入前端助手的所有注册函数
@@ -22,7 +29,7 @@ import { registerIframeUtilHandler } from './dist/iframe_server/util.js';
 import { registerIframeVariableHandler } from './dist/iframe_server/variables.js';
 
 // 导入房间管理函数
-import { addClientToRoom, removeClientFromRoom } from './dist/Rooms.js';
+import { addClientToRoom, removeClientFromRoom } from './dist/NewAge/Rooms.js';
 //import { clientKeys } from './server/dist/Keys.js';
 
 const extensionName = 'SillyTavern-NewAge';
@@ -46,6 +53,10 @@ let logCounter = 0;
 const llmRequestQueue = [];
 const functionCallQueue = [];
 let isProcessingRequest = false; // 标志：是否有请求正在处理中
+let isExpectingLLMResponse = false; // 全局标志，指示是否正在等待 LLM 响应
+let previousLLMResponse = null; // 存储上一个 LLM 响应的文本
+let previousRequest = null; //新增：存储上一个请求
+let isNewChat = true; // 标志：是否为新的聊天
 
 // socket.handshake.auth相关
 let isRemembered = false;
@@ -331,7 +342,8 @@ async function checkRememberMe() {
       clientId: clientId,
       desc: clientDesc,
     },
-    false,true
+    false,
+    true,
   ); // 不自动连接
 
   tempSocket.connect(); // 手动连接
@@ -679,6 +691,7 @@ async function connectToServer() {
       },
       false,
       true,
+      10,
     );
 
     llmSocket.connect();
@@ -1089,24 +1102,45 @@ async function testGenerate() {
 // 新增：处理请求队列
 async function processRequest() {
   if (isProcessingRequest) {
-    return; // 如果有请求正在处理，则直接返回 / If a request is already being processed, return directly
+    return;
   }
 
   if (llmRequestQueue.length > 0) {
     isProcessingRequest = true;
-    const request = llmRequestQueue.shift(); // 从队列中取出第一个请求 / Take the first request from the queue
+
+    // 在处理新请求之前，处理上一个 LLM 响应
+    if (previousLLMResponse && previousRequest) {
+      const lastRequestId = previousRequest.clientMessageId;
+      //const lastRequestType = llmRequestQueue.length > 1 ? llmRequestQueue.at(-2).requestType : 'newMessage';
+      const lastRequestType = previousRequest.requestType;
+
+      if (lastRequestType === 'newMessage') {
+        // 对于 newMessage，已经在 handleLlmRequest 中创建了新的消息楼层，
+        // 这里不需要做任何事情。
+        // 可以在这里添加日志，以确认 newMessage 的行为。
+        //setChatMessage({ message: previousLLMResponse }, lastRequestId + 1, { swipe_id: 0, refresh: 'display_and_render_current' });
+        console.log('Previous request was newMessage.  No action needed here.');
+      } else if (lastRequestType === 'regenerateMessage') {
+        // 对于 regenerateMessage，替换当前消息楼层的最后一个消息页的内容
+        setChatMessage({ message: previousLLMResponse }, lastRequestId, {
+          swipe_id: 'current',
+          refresh: 'display_and_render_current',
+        });
+      }
+      previousLLMResponse = null; // 清空 previousLLMResponse
+    }
+
+    const request = llmRequestQueue.shift();
+    previousRequest = request; //新增
 
     try {
-      // 调用 iframeGenerate 生成文本
       await iframeGenerate(request.generateConfig);
-
-      //生成的文本会通过事件监听器自动进行处理，无需在此进行处理
+      // 生成的文本会通过事件监听器自动进行处理，无需在此进行处理
     } catch (error) {
       console.error('生成文本时出错:', error);
       addLogMessage('fail', `生成文本时出错: ${error}`, 'client', request.requestId);
 
       if (llmSocket && llmSocket.connected) {
-        // 使用 llmSocket 发送错误消息
         llmSocket.emit(MSG_TYPE.ERROR, {
           type: MSG_TYPE.ERROR,
           message: '生成文本时出错',
@@ -1116,17 +1150,8 @@ async function processRequest() {
       }
     } finally {
       isProcessingRequest = false;
-      processRequest(); // 递归调用，处理下一个请求
-    }
-  } else if (functionCallQueue.length > 0) {
-    isProcessingRequest = true;
-    const { data, callback } = functionCallQueue.shift();
-    // 使用 functionCallSocket
-    functionCallSocket.emit(MSG_TYPE.FUNCTION_CALL, data, response => {
-      callback(response);
-      isProcessingRequest = false;
       processRequest();
-    });
+    }
   }
 }
 
@@ -1145,14 +1170,25 @@ async function handleLlmRequest(data) {
   toastr.info(`Received LLM request: ${data.message}`, 'LLM Request');
   console.log('Received LLM request:', data);
 
+  // 立即设置客户端请求文本 (新的消息楼层)
+  const clientMessageId = chat.length; // 获取新添加的消息楼层的 ID
+  setChatMessage({ message: data.message }, clientMessageId, { refresh: 'none' });
+
   const generateConfig = {
     user_input: data.message,
     stream: globalThis.isLLMStreamOutput,
   };
 
-  // 将请求添加到队列 / Add the request to the queue
-  llmRequestQueue.push({ generateConfig, requestId: data.requestId, target: data.target });
-  processRequest(); // 尝试处理请求 / Try to process the request
+  // 将请求添加到队列，并设置 isExpectingLLMResponse 为 true
+  llmRequestQueue.push({
+    generateConfig,
+    requestId: data.requestId,
+    target: data.target,
+    requestType: data.requestType, // 存储 requestType
+    clientMessageId: clientMessageId,
+  });
+  isExpectingLLMResponse = true; // 设置标志
+  processRequest();
 }
 
 eventSource.on('js_generation_ended', generatedText => {
@@ -1643,28 +1679,42 @@ jQuery(async () => {
 
   updateForwardingOptionsVisibility();
 
-  let latestRequestId = null;
-
   eventSource.on(event_types.STREAM_TOKEN_RECEIVED, data => {
-    if (messageForwarder.isStreamForwardingEnabled) {
-      latestRequestId = llmRequestQueue.at(-1).requestId;
-      messageForwarder.handleStreamToken(data, messageForwarder.getMessageType(), latestRequestId);
-    } else if (messageForwarder.isNonStreamForwardingEnabled) {
-      messageForwarder.accumulateStreamData(data, latestRequestId);
+    if (isExpectingLLMResponse) {
+      // 检查标志
+      if (messageForwarder.isStreamForwardingEnabled) {
+        messageForwarder.handleStreamToken(data, messageForwarder.getMessageType(), llmRequestQueue.at(0)?.requestId);
+      } else if (messageForwarder.isNonStreamForwardingEnabled) {
+        messageForwarder.accumulateStreamData(data, llmRequestQueue.at(0)?.requestId);
+      }
+    } else {
+      console.warn('Received LLM stream token without a corresponding request. Ignoring.');
+      // 可以选择记录日志或采取其他操作
     }
   });
 
   eventSource.on(event_types.MESSAGE_RECEIVED, messageId => {
-    if (!globalThis.isLLMStreamOutput) {
-      latestRequestId = llmRequestQueue.at(-1).requestId;
-      messageForwarder.handleNonStreamMessage(messageId, messageForwarder.getMessageType(), latestRequestId);
+    if (isExpectingLLMResponse) {
+      // 检查标志
+      if (!globalThis.isLLMStreamOutput) {
+        messageForwarder.handleNonStreamMessage(
+          messageId,
+          messageForwarder.getMessageType(),
+          llmRequestQueue.at(0)?.requestId,
+        );
+      }
+    } else {
+      console.warn('Received LLM message without a corresponding request. Ignoring.');
+      // 可以选择记录日志或采取其他操作
     }
   });
 
   let generationStartedHandled = false;
 
   eventSource.on(event_types.GENERATION_STARTED, () => {
-    if (!generationStartedHandled) {
+    //向LLM发送请求，流式和非流式都是会触发这个事件
+    if (isExpectingLLMResponse && !generationStartedHandled) {
+      // 只有在预期 LLM 响应 且 generationStartedHandled 为 false 时才执行
       messageForwarder.setNewOutputId();
       messageForwarder.resetPreviousLLMData();
       generationStartedHandled = true;
@@ -1672,15 +1722,32 @@ jQuery(async () => {
   });
 
   eventSource.on(event_types.GENERATION_ENDED, () => {
-    messageForwarder.resetOutputId();
-    messageForwarder.resetPreviousLLMData();
-    generationStartedHandled = false;
+    //成功接收所有文本，流式和非流式都会触发该事件
+    if (isExpectingLLMResponse) {
+      // 获取完整的 LLM 响应文本
+      previousLLMResponse = messageForwarder.messages;
+      console.log('previousLLMResponse', previousLLMResponse);
+      messageForwarder.resetOutputId();
+      messageForwarder.resetPreviousLLMData();
+      generationStartedHandled = false;
+      isExpectingLLMResponse = false; // 重置标志
+    }
   });
 
   eventSource.on(event_types.GENERATION_STOPPED, () => {
+    // 通常来说GENERATION_STOPPED是受迫性的，即用户自主停止或者LLM响应自动停止
+    if (isExpectingLLMResponse) {
+      // 获取完整的 LLM 响应文本
+      previousLLMResponse = messageForwarder.messages;
+      console.log('previousLLMResponse', previousLLMResponse);
+    }
+    // 即使没有预期的响应也应该重置一下messageForwarder
     messageForwarder.resetOutputId();
     messageForwarder.resetPreviousLLMData();
     generationStartedHandled = false;
+    if (isExpectingLLMResponse) {
+      isExpectingLLMResponse = false;
+    }
   });
 
   eventSource.on('js_generation_ended', generatedText => {

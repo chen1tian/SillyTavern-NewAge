@@ -1,8 +1,8 @@
 // message_forwarder.js (SillyTavern客户端)
 
-import { sendNonStreamMessage } from '../lib/non_stream.js';
-import { MSG_TYPE, STREAM_EVENTS } from '../lib/constants.js';
-import { uuidv4 } from '../lib/uuid/uuid.js';
+import { sendNonStreamMessage } from '../../lib/non_stream.js';
+import { MSG_TYPE, STREAM_EVENTS } from '../../lib/constants.js';
+import { uuidv4 } from '../../lib/uuid/uuid.js';
 
 /**
  * @description 获取消息类型 (流式或非流式) / Gets the message type (stream or non-stream).
@@ -18,6 +18,7 @@ let currentOutputId = null;
 let requestId = null;
 let accumulatedStreamData = '';
 let theLatestRequestId = null;
+let messages = '';
 
 /**
  * @description 获取当前的 outputId / Gets the current output ID.
@@ -55,6 +56,7 @@ function resetOutputId() {
  */
 function resetPreviousLLMData() {
   previousLLMData = '';
+  messages = '';
 }
 
 /**
@@ -70,6 +72,7 @@ function handleNonStreamMessage(messageId, messageType, requestId) {
   const message = chat[messageId];
 
   if (message && message.mes) {
+    messages = chatMessage.mes;
     if (globalThis.socket && globalThis.socket.connected) {
       const extensionName = $('#socketio-extensionName').val();
       if (isNonStreamForwardingEnabled) {
@@ -94,6 +97,8 @@ function handleNonStreamMessage(messageId, messageType, requestId) {
 function handleStreamToken(data, messageType, requestId) {
   if (messageType === MSG_TYPE.STREAM && isStreamForwardingEnabled) {
     const llmStreamData = String(data);
+
+    messages += llmStreamData;
 
     tokenCount += llmStreamData.length;
 
@@ -358,4 +363,5 @@ export {
   sendAccumulatedData,
   isStreamForwardingEnabled,
   isNonStreamForwardingEnabled,
+  messages,
 };

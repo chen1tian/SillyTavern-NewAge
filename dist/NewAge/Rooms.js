@@ -1,6 +1,6 @@
 // lib/Rooms.js
 
-import { MSG_TYPE } from '../lib/constants.js'; // 假设 constants.js 在同一目录下
+import { MSG_TYPE } from '../../lib/constants.js'; // 假设 constants.js 在同一目录下
 
 /**
  * 创建房间(暂不使用)

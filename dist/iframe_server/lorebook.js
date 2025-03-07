@@ -225,4 +225,6 @@ export function registerIframeLorebookHandler() {
         return success;
     });
 }
+
+export { toLorebookSettings, assignPartialLorebookSettings };
 //# sourceMappingURL=lorebook.js.map

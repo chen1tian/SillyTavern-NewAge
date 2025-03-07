@@ -20,7 +20,7 @@ function sendNonStreamMessage(socket, message, requestId) {
   socket.emit('message', {
     type: MSG_TYPE.NON_STREAM,
     data: message,
-    source: 'client', // 标记消息来源为客户端
+    source: extensionName, 
     requestId: reqId,
     outputId: outId,
     clientId: extensionName,
@@ -47,7 +47,7 @@ function setupServerNonStreamHandlers(io, namespace, llmRequests) {
           socket.emit('message', {
             type: MSG_TYPE.NON_STREAM,
             data: responseMessage,
-            source: 'server', // 标记消息来源为客户端
+            source: 'server', 
             requestId: socket.reqId,
             outputId: uuidv4(),
           });
