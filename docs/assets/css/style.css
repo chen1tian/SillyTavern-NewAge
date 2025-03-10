@@ -58,25 +58,12 @@ main {
 
 /* Card Styles */
 .card {
-  /* ... 其他样式 ... */
-  display: none;
-  /* 初始隐藏所有卡片 */
-  opacity: 0;
-  /* 初始透明度为 0 */
-  transition: opacity 0.5s ease, transform 0.5s ease;
-  /* 添加 opacity 过渡 */
-}
-
-.card.active {
-  opacity: 1;
-  /* 显示时透明度为 1 */
-  transform: translateY(0);
-  /* 恢复到正常位置 */
-  display: block;
-}
-
-.row.mt-5 {
-  position: relative;
+  background-color: #fff;
+  border: none;
+  border-radius: 10px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  margin-bottom: 20px;
 }
 
 .card:hover {
@@ -86,6 +73,33 @@ main {
 
 .card-title {
   color: #3498db;
+}
+
+/* Swiper Styles */
+.swiper-container {
+  width: 100%;
+  padding-bottom: 50px;
+  /* 为分页器留出空间 */
+}
+
+.swiper-slide {
+  text-align: center;
+  /* 内容居中 */
+}
+
+.swiper-pagination-bullet {
+  width: 12px;
+  height: 12px;
+  background-color: #ddd;
+  opacity: 0.8;
+  margin: 0 5px;
+  border-radius: 50%;
+  /* 圆形指示器 */
+}
+
+.swiper-pagination-bullet-active {
+  background-color: #3498db;
+  opacity: 1;
 }
 
 /* Button Styles */
