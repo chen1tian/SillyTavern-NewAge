@@ -80,11 +80,22 @@ main {
   width: 100%;
   padding-bottom: 50px;
   /* 为分页器留出空间 */
+  overflow: hidden;
+  /* 关键：隐藏超出容器的内容 */
 }
 
 .swiper-slide {
   text-align: center;
   /* 内容居中 */
+  width: auto;
+  /* 关键：自动宽度，由内容决定 */
+  /* 移除 max-width: 100%; */
+  display: flex;
+  /* 重要：使卡片高度一致 */
+}
+
+.card {
+  width: 100%;
 }
 
 .swiper-pagination-bullet {

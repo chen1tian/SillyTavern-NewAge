@@ -2,7 +2,7 @@ document.addEventListener('DOMContentLoaded', function () {
   var mySwiper = new Swiper('.swiper-container', {
     // Optional parameters
     loop: true, // 循环模式
-    slidesPerView: 3, // 同时显示3个slide
+    slidesPerView: 'auto', // 关键：自动计算显示的 slide 数量
     spaceBetween: 30, // slide之间的距离
     centeredSlides: true, // 居中显示
     pagination: {
@@ -12,17 +12,17 @@ document.addEventListener('DOMContentLoaded', function () {
     breakpoints: {
       // when window width is >= 320px
       320: {
-        slidesPerView: 1,
+        //slidesPerView: 1,
         spaceBetween: 20
       },
       // when window width is >= 768px
       768: {
-        slidesPerView: 2,
+        //slidesPerView: 2,
         spaceBetween: 30
       },
       // when window width is >= 992px
       992: {
-        slidesPerView: 3,
+        //slidesPerView: 3,
         spaceBetween: 40
       }
     }
