@@ -975,7 +975,7 @@ llmNsp.on('connection', async socket => {
     });
 
     if (targetSocket) {
-      // 找到目标客户端，转发请求
+      // 找到目标SillyTavern客户端，转发请求
       targetSocket.emit(MSG_TYPE.LLM_REQUEST, data);
       console.log(`Forwarded LLM request to target client: ${target}`);
 

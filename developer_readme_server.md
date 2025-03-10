@@ -46,17 +46,17 @@ server/
 
 ## 初始化流程
 
-1.  **加载模块**：导入必要的 Node.js 模块和自定义模块。
-2.  **创建 Express 应用和 HTTP 服务器**：使用 `express` 和 `http` 模块创建服务器。
-3.  **创建 Socket.IO 服务器**：创建 Socket.IO 服务器实例，并配置 CORS。
-4.  **加载服务器设置**：
-    *   从 `settings/server_settings.json` 文件加载服务器设置，如果文件不存在则创建。
-    *   自动从 `settings/` 目录下加载可信客户端和 SillyTavern 扩展的配置 (根据 `clientId` 和 `isTrust` 字段)。
-    *   自动哈希 `server_settings.json` 中未哈希的 SillyTavern 密码。
-5.  **定义全局变量**：定义请求映射 (`llmRequests`)、可信客户端/SillyTavern 集合等变量。
-6.  **注册 `function_call` 函数**：遍历 `function_call.js` 中导出的函数，并使用 `registerFunction()` 注册到 `functionRegistry`。
-7.  **设置 Socket.IO 事件监听器**：在不同的命名空间中设置事件监听器，处理客户端连接、消息、断开连接等事件。
-8.  **启动 HTTP 服务器**：调用 `httpServer.listen()` 启动服务器。
+1. **加载模块**：导入必要的 Node.js 模块和自定义模块。
+2. **创建 Express 应用和 HTTP 服务器**：使用 `express` 和 `http` 模块创建服务器。
+3. **创建 Socket.IO 服务器**：创建 Socket.IO 服务器实例，并配置 CORS。
+4. **加载服务器设置**：
+    - 从 `settings/server_settings.json` 文件加载服务器设置，如果文件不存在则创建。
+    - 自动从 `settings/` 目录下加载可信客户端和 SillyTavern 扩展的配置 (根据 `clientId` 和 `isTrust` 字段)。
+    - 自动哈希 `server_settings.json` 中未哈希的 SillyTavern 密码。
+5. **定义全局变量**：定义请求映射 (`llmRequests`)、可信客户端/SillyTavern 集合等变量。
+6. **注册 `function_call` 函数**：遍历 `function_call.js` 中导出的函数，并使用 `registerFunction()` 注册到 `functionRegistry`。
+7. **设置 Socket.IO 事件监听器**：在不同的命名空间中设置事件监听器，处理客户端连接、消息、断开连接等事件。
+8. **启动 HTTP 服务器**：调用 `httpServer.listen()` 启动服务器。
 
 ## 模块和函数
 
@@ -125,12 +125,12 @@ server/
 
 服务器使用 Socket.IO 的命名空间来组织不同的功能和消息类型：
 
-*   **`/` (默认命名空间):**  用于处理基本的连接、断开连接和监控客户端。
-*   **`/auth`:**  用于客户端认证 (密钥验证、临时房间分配) 和 SillyTavern 扩展的识别。
-*   **`/clients`:**  用于管理客户端密钥 (生成、移除、获取列表等)，主要供 SillyTavern 扩展使用。
-*   **`/llm`:**  **核心命名空间**，用于处理所有 LLM 相关的请求和响应 (包括流式和非流式)。
-*   **`/sillytavern`:**  用于 SillyTavern 扩展与服务器之间的特定通信 (例如，客户端设置同步)。
-*   **`/function_call`:** 用于处理函数调用请求。
+- **`/` (默认命名空间):**  用于处理基本的连接、断开连接和监控客户端。
+- **`/auth`:**  用于客户端认证 (密钥验证、临时房间分配) 和 SillyTavern 扩展的识别。
+- **`/clients`:**  用于管理客户端密钥 (生成、移除、获取列表等)，主要供 SillyTavern 扩展使用。
+- **`/llm`:**  **核心命名空间**，用于处理所有 LLM 相关的请求和响应 (包括流式和非流式)。
+- **`/sillytavern`:**  用于 SillyTavern 扩展与服务器之间的特定通信 (例如，客户端设置同步)。
+- **`/function_call`:** 用于处理函数调用请求。
 
 ## 消息类型 (MSG_TYPE)
 
@@ -170,7 +170,7 @@ const MSG_TYPE = {
 
 ## 事件
 
-*   **服务器 -> 客户端:**
+- **服务器 -> 客户端:**
 
     | 事件名           | 命名空间        | 描述                                     | 数据格式                                                                                                                      |
     | :--------------- | :-------------- | :--------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------- |
@@ -178,7 +178,8 @@ const MSG_TYPE = {
     | `streamed_data`  | `/llm`          | 流式数据事件 (使用 `socket.io-stream`)。 | `stream`:  `socket.io-stream` 的可读流, `data`: `{ streamId: string, outputId: string, requestId: string, source: 'server' }` |
     | `MSG_TYPE.ERROR` | `/auth`, `/llm` | 错误消息。                               | `{ type: MSG_TYPE.ERROR, message: string, requestId?: string }`                                                               |
 
-*   **SillyTavern -> 服务器:**
+- **SillyTavern -> 服务器:**
+
     | 事件名                             | 命名空间         | 描述                       | 数据格式                                                                    |
     | :--------------------------------- | :--------------- | :------------------------- | :-------------------------------------------------------------------------- |
     | `message`                          | `/llm`           | 通用消息事件               | 根据具体消息类型而定                                                        |
@@ -202,21 +203,21 @@ const MSG_TYPE = {
 
 ## 数据结构
 
-*   **`serverSettings` (Object):** 服务器配置 (从 `settings/server_settings.json` 加载)。
-*   **`trustedSillyTaverns` (Set):** 可信的 SillyTavern 实例的 `clientId` 集合。
-*   **`trustedClients` (Set):** 可信的普通客户端的 `clientId` 集合。
-*   **`llmRequests` (Object):** LLM 请求的映射关系：`{ [requestId]: [ { target: string, clientId: string }, ... ] }`。
-*   **`streamBuffers` (Object):** `{ [streamId]: { [chunkIndex]: data } }`，用于存储和重组来自 SillyTavern 的流式数据块。
-*   **`outputBuffers` (Object):** `{ [outputId]: messageString }`，用于存储构建的消息 (主要用于记录)。
-*   **`requestStatus` (Object):** `{ [requestId]: 'started' | 'processing' | 'completed' }`，用于跟踪流式请求的状态。
-*   **`clientStreams` (Object):** `{ [streamId]: stream }`，用于存储每个流 ID 对应的 `socket.io-stream` 流 (服务器 -> 客户端转发)。
-*   **`functionRegistry` (Object):** `{ [functionName]: function }`，存储服务器端可调用的函数。
-*   **`reconnectIntervals` (Object):** `{ [clientId]: intervalId }`，存储客户端的重连间隔 ID。
-*   **`tempRooms` (Object):** `{ [clientId]: tempRoomId }`，存储临时房间的映射关系。
+- **`serverSettings` (Object):** 服务器配置 (从 `settings/server_settings.json` 加载)。
+- **`trustedSillyTaverns` (Set):** 可信的 SillyTavern 实例的 `clientId` 集合。
+- **`trustedClients` (Set):** 可信的普通客户端的 `clientId` 集合。
+- **`llmRequests` (Object):** LLM 请求的映射关系：`{ [requestId]: [ { target: string, clientId: string }, ... ] }`。
+- **`streamBuffers` (Object):** `{ [streamId]: { [chunkIndex]: data } }`，用于存储和重组来自 SillyTavern 的流式数据块。
+- **`outputBuffers` (Object):** `{ [outputId]: messageString }`，用于存储构建的消息 (主要用于记录)。
+- **`requestStatus` (Object):** `{ [requestId]: 'started' | 'processing' | 'completed' }`，用于跟踪流式请求的状态。
+- **`clientStreams` (Object):** `{ [streamId]: stream }`，用于存储每个流 ID 对应的 `socket.io-stream` 流 (服务器 -> 客户端转发)。
+- **`functionRegistry` (Object):** `{ [functionName]: function }`，存储服务器端可调用的函数。
+- **`reconnectIntervals` (Object):** `{ [clientId]: intervalId }`，存储客户端的重连间隔 ID。
+- **`tempRooms` (Object):** `{ [clientId]: tempRoomId }`，存储临时房间的映射关系。
 
 ## 开发指南
 
-1.  **消息格式**：客户端和服务器之间的所有消息都应该遵循以下基本格式：
+1. **消息格式**：客户端和服务器之间的所有消息都应该遵循以下基本格式：
 
     ```json
     {
@@ -229,37 +230,37 @@ const MSG_TYPE = {
     }
     ```
 
-2.  **流式消息 (SillyTavern -> 服务器 -> 客户端):**
+2. **流式消息 (SillyTavern -> 服务器 -> 客户端):**
 
-    *   **SillyTavern -> 服务器：**  使用 `STREAM_EVENTS` 中的事件名称 (`STREAM_START`, `DATA_FIRST`, `DATA_MIDDLE`, `DATA_LAST`, `STREAM_END`) 发送流式消息。 服务器使用 `streamBuffers` 和 `outputBuffers` 接收和重组数据块。
-    *   **服务器 -> 客户端：**  服务器使用 `socket.io-stream` 将数据 *即时* 转发给客户端 (在 `handleStreamData` 中调用 `clientStreams[data.streamId].write(data.data)`)。 客户端监听 `'streamed_data'` 事件，接收 `socket.io-stream` 流和元数据。
+    - **SillyTavern -> 服务器：**  使用 `STREAM_EVENTS` 中的事件名称 (`STREAM_START`, `DATA_FIRST`, `DATA_MIDDLE`, `DATA_LAST`, `STREAM_END`) 发送流式消息。 服务器使用 `streamBuffers` 和 `outputBuffers` 接收和重组数据块。
+    - **服务器 -> 客户端：**  服务器使用 `socket.io-stream` 将数据 *即时* 转发给客户端 (在 `handleStreamData` 中调用 `clientStreams[data.streamId].write(data.data)`)。 客户端监听 `'streamed_data'` 事件，接收 `socket.io-stream` 流和元数据。
 
-3.  **非流式消息：**
+3. **非流式消息：**
 
-    *   使用 `sendNonStreamMessage` 函数 (在 `lib/non_stream.js` 中) 发送非流式消息。
-    *   服务器在 `/llm` 命名空间中监听 `'message'` 事件来接收非流式消息。
+    - 使用 `sendNonStreamMessage` 函数 (在 `lib/non_stream.js` 中) 发送非流式消息。
+    - 服务器在 `/llm` 命名空间中监听 `'message'` 事件来接收非流式消息。
 
-4.  **LLM 请求/响应：**
-    *   客户端在发送 `LLM_REQUEST` 时，必须在 `data` 中包含 `target` (目标 SillyTavern 的 `clientId`)、`requestId` 和 `isStream` (是否是流式请求) 字段。
-    *    服务器通过 `llmRequests` 对象跟踪请求和响应的映射关系，以便将响应转发回正确的客户端。
+4. **LLM 请求/响应：**
+    - 客户端在发送 `LLM_REQUEST` 时，必须在 `data` 中包含 `target` (目标 SillyTavern 的 `clientId`)、`requestId` 和 `isStream` (是否是流式请求) 字段。
+    - 服务器通过 `llmRequests` 对象跟踪请求和响应的映射关系，以便将响应转发回正确的客户端。
 
-5.  **房间管理**：使用 `Rooms.js` 中的函数来管理房间。
+5. **房间管理**：使用 `Rooms.js` 中的函数来管理房间。
 
-6.  **密钥管理**：使用 `Keys.js` 中的函数来生成、存储和验证密钥。
+6. **密钥管理**：使用 `Keys.js` 中的函数来生成、存储和验证密钥。
 
-7.  **函数调用**：
-    *   服务器端：使用 `registerFunction()` 函数注册可供调用的函数。
-    *   客户端：使用 `MSG_TYPE.FUNCTION_CALL` 消息类型发送函数调用请求，并在 `data` 中包含 `functionName`、`args` 和 `target` 字段。
+7. **函数调用**：
+    - 服务器端：使用 `registerFunction()` 函数注册可供调用的函数。
+    - 客户端：使用 `MSG_TYPE.FUNCTION_CALL` 消息类型发送函数调用请求，并在 `data` 中包含 `functionName`、`args` 和 `target` 字段。
 
-8.  **错误处理**：
-    *   在事件监听器中，使用 `try...catch` 块来捕获错误。
-    *   向客户端发送错误消息时，使用 `MSG_TYPE.ERROR` 类型。
+8. **错误处理**：
+    - 在事件监听器中，使用 `try...catch` 块来捕获错误。
+    - 向客户端发送错误消息时，使用 `MSG_TYPE.ERROR` 类型。
 
-9.  **异步操作**：注意 `async/await` 和 `Promise` 的使用。
+9. **异步操作**：注意 `async/await` 和 `Promise` 的使用。
 
 ## 注意事项
 
-*   服务器需要 `settings/` 目录来存储 `server_settings.json` 和客户端配置文件。
-*   SillyTavern 扩展的 `clientId` 应该以 "SillyTavern" 开头 (这是一个约定，可以在 `loadServerSettings` 中修改)。
-*   遵循最小权限原则，只授予客户端和扩展必要的权限。
-*   注意服务器的资源消耗，避免内存泄漏和性能问题。
+- 服务器需要 `settings/` 目录来存储 `server_settings.json` 和客户端配置文件。
+- SillyTavern 扩展的 `clientId` 应该以 "SillyTavern" 开头 (这是一个约定，可以在 `loadServerSettings` 中修改)。
+- 遵循最小权限原则，只授予客户端和扩展必要的权限。
+- 注意服务器的资源消耗，避免内存泄漏和性能问题。

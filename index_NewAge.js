@@ -13,6 +13,8 @@ import {
   substituteParamsExtended,
 } from '../../../../../../script.js';
 import * as messageForwarder from './dist/NewAge/message_forwarder.js';
+import { getChatMessages, setChatMessage } from './dist/NewAge/chat.js';
+
 import { handleIframe } from './dist/iframe_server/index.js';
 
 // 导入前端助手的所有注册函数
@@ -328,6 +330,17 @@ async function onLoginClick() {
 */
 
 /**
+ * @description 手动登录点击事件 / Handles the login click event.
+ */
+async function connectToServerByHand(){
+  const serverAddress = $('#ST-NewAge-socketio-connect-serverAddressInput').val();
+  const serverPort = $('#ST-NewAge-socketio-connect-serverPortInput').val();
+  fullServerAddress = `${serverAddress}:${serverPort}`;
+
+  checkRememberMe();
+}
+
+/**
  * @description 检查是否记住登录 / Checks if login is remembered.
  * @async
  * @function checkRememberMe
@@ -378,7 +391,8 @@ async function checkRememberMe() {
             $('.animated-details').hide();
             */
             isRemembered = true;
-            $('#ST-NewAge-login-form').hide();
+            //$('#ST-NewAge-login-form').hide();
+            $('#ST-NewAge-socketio-connect').hide();
             $('.ST-NewAge-button-group').show();
             $('.ST-NewAge-animated-details').show();
             connectToServer(); //强制连接
@@ -387,7 +401,8 @@ async function checkRememberMe() {
           console.error('Failed to check "Remember_me":', response.error);
           toastr.error('Failed to check "Remember_me".', 'Error');
           // 显示登录界面
-          $('#ST-NewAge-login-form').show();
+          //$('#ST-NewAge-login-form').show();
+          $('#ST-NewAge-socketio-connect').show();
           $('.ST-NewAge-button-group').hide();
           $('.ST-NewAge-animated-details').hide();
         }
@@ -940,83 +955,6 @@ function setupClientsSocketListeners() {
 //     // sillyTavernSocket.on(...) // 添加与 SillyTavern 相关的监听器
 // }
 
-function onDisconnectClick() {
-  // if (socket) { // 改为断开所有连接
-  //     socket.disconnect();
-  // }
-  disconnectAllSockets();
-}
-
-/**
- * @description 获取或生成客户端密钥 / Gets or generates a client key.
- * @async
- * @function getOrCreateClientKey
- * @returns {Promise<string>} 客户端密钥 / The client key.
- */
-async function getOrCreateClientKey() {
-  return new Promise(resolve => {
-    // 使用 clients 命名空间
-    const keySocket = createNamedSocket(
-      NAMESPACES.CLIENTS,
-      {
-        clientType: 'extension_keySocket',
-        clientId: clientId,
-        key: socket.auth.key,
-        desc: clientDesc,
-      },
-      false,
-    );
-
-    keySocket.connect(); // 手动连接
-    //console.log('keySocket auth', keySocket);
-    keySocket.emit(MSG_TYPE.GET_CLIENT_KEY, { clientId }, response => {
-      if (response.status === 'ok' && response.key) {
-        resolve(response.key);
-      } else {
-        keySocket.emit(MSG_TYPE.GENERATE_CLIENT_KEY, { clientId }, response => {
-          if (response.status === 'ok' && response.key) {
-            resolve(response.key);
-          } else {
-            console.error('Failed to generate client key:', response.message);
-            toastr.error('Failed to generate client key.', 'Error');
-            resolve(null);
-          }
-        });
-      }
-      console.log('response.key', response);
-      //keySocket.disconnect(); // 获取或生成密钥后断开连接
-      disconnectSocket(keySocket);
-    });
-  });
-}
-
-/**
- * @description 发送主密钥 (如果存在) / Sends the master key (if it exists).
- * @function sendMasterKey
- * @returns {void}
- */
-function sendMasterKey() {
-  if (serverSettings.sillyTavernMasterKey) {
-    // 使用 auth 命名空间
-    const masterKeySocket = createNamedSocket(
-      NAMESPACES.AUTH,
-      {
-        clientType: 'extension_masterKeySocket',
-        clientId: clientId,
-        desc: clientDesc,
-        key: socket.auth.key, // 使用主连接的密钥
-      },
-      false,
-    );
-    masterKeySocket.connect();
-
-    masterKeySocket.emit(MSG_TYPE.IDENTIFY_SILLYTAVERN, { key: serverSettings.sillyTavernMasterKey }, response => {
-      //masterKeySocket.disconnect();
-      disconnectSocket(masterKeySocket);
-    });
-  }
-}
-
 /**
  * @description 测试与 Socket.IO 服务器的连接 / Tests the connection with the Socket.IO server.
  * @function onTestClick
@@ -1028,17 +966,6 @@ function onTestClick() {
       module.sendNonStreamMessage(llmSocket, 'Connection active?');
     });
   }
-}
-
-/**
- * @description 处理接收到的流式 Token / Handles incoming stream tokens.
- * @function handleStreamToken
- * @param {object} data - 接收到的数据 / Received data.
- * @returns {void}
- */
-function handleStreamToken(data) {
-  const latestRequestId = llmRequestQueue.at(-1).requestId;
-  messageForwarder.handleStreamToken(data, messageForwarder.getMessageType(), latestRequestId);
 }
 
 /**
@@ -1603,6 +1530,8 @@ jQuery(async () => {
   $('#ST-NewAge-socketio-logFilter').on('change', filterLog);
 
   $('#ST-NewAge-socketio-refreshRoomsBtn').on('click', refreshRoomList);
+
+  $('#ST-NewAge-socketio-connectBtn').on('click', connectToServerByHand);
 
   //$('#ST-NewAge-socketio-loginBtn').on('click', onLoginClick);
   //$('#ST-NewAge-socketio-logoutBtn').on('click', onLogoutClick);

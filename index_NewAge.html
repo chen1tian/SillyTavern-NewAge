@@ -18,6 +18,18 @@
         <div id="ST-NewAge-login-message"></div>
       </div>-->
 
+      <div id="ST-NewAge-socketio-connect">
+        <button id="ST-NewAge-socketio-connectBtn">连接</button>
+        <label for="ST-NewAge-socketio-connect-serverPortInput">服务器端口:</label>
+        <input type="number" id="ST-NewAge-socketio-connect-serverPortInput" class="ST-NewAge-text_pole" value="4000">
+        <label for="ST-NewAge-socketio-connect-serverAddressInput">服务器地址:</label>
+        <input type="text" id="ST-NewAge-sconnect-ocketio-serverAddressInput" class="ST-NewAge-text_pole"
+          value="http://localhost">
+        <label>
+          <input type="checkbox" id="ST-NewAge-socketio-rememberMe">
+          <small class="ST-NewAge-checkName">记住我</small>
+        </label>
+      </div>
 
       <!-- 操作按钮 -->
       <div class="ST-NewAge-button-group">
@@ -97,16 +109,16 @@
               <button id="ST-NewAge-socketio-generateKeyBtn" class="ST-NewAge-menu_button">生成</button>
               <button id="ST-NewAge-socketio-removeKeyBtn" class="ST-NewAge-menu_button">删除</button>
             </div>
-            
+
           </div>
         </div>
-        
+
         <div class="ST-NewAge-save-button-container">
           <button id="ST-NewAge-socketio-saveSettingsBtn" class="ST-NewAge-menu_button">保存</button>
         </div>
-        
+
       </details>
-      
+
 
       <!-- 可折叠的功能部分 -->
       <details class="ST-NewAge-animated-details">
