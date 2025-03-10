@@ -18,7 +18,7 @@ permalink: /
     </div>
     <div class="col-md-6">
       <!-- Replace with your project logo -->
-      <img src="{{ '/assets/images/logo.png' | relative_url }}" alt="SillyTavern-NewAge Logo" class="img-fluid">
+      <!--<img src="{{ '/assets/images/logo.png' | relative_url }}" alt="SillyTavern-NewAge Logo" class="img-fluid">-->
     </div>
   </div>
 
