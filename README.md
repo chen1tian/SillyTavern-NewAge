@@ -133,7 +133,7 @@ SillyTavern 是一个用户友好的界面，让你可以与文本生成 AI 进�
 
 ## 使用方法 (How to Use)
 
-1. **安装扩展：** 在 SillyTavern 中，转到 "Extensions" 面板，点击 "Load extension from URL"，输入本项目的 GitHub 仓库链接 (例如, `https://github.com/N0VI028/SillyTavern-NewAge`)，然后点击 "LOAD"。
+1. **安装扩展：** 在 SillyTavern 中，转到 "Extensions" 面板，点击 "Load extension from URL"，输入本项目的 GitHub 仓库链接 (`https://github.com/HerSophia/SillyTavern-NewAge`)，然后点击 "LOAD"。
 2. **启动服务器：**
     - **方法一 (推荐)：** 找到 SillyTavern-NewAge 扩展的根目录下的 `server` 文件夹 (通常在 `SillyTavern/public/scripts/extensions/third-party/SillyTavern-NewAge/server`)。
     - **方法二：** 如果你单独下载了 `server` 文件夹，则进入该文件夹。
