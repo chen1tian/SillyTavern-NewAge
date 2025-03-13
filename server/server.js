@@ -10,6 +10,8 @@ import path, { dirname, join } from 'path';
 import fs from 'fs';
 import * as fss from 'fs/promises';
 import bcrypt from 'bcryptjs';
+import winston from 'winston/lib/winston/config/index.js';
+import { merge, isString, startsWith, has, forEach } from 'lodash';
 //import * as functionCall from './dist/function_call.js';
 
 import { readJsonFromFile, saveJsonToFile, addStaticResources } from './dist/function_call.js';
@@ -43,6 +45,37 @@ let io = new Server(httpServer, {
   serveClient: true,
 });
 
+export { io };
+
+// 创建 Winston logger
+const logger = winston.createLogger({
+  level: 'info', // 设置日志级别
+  format: winston.format.combine(
+    winston.format.timestamp({
+      format: 'YYYY-MM-DD HH:mm:ss' // 自定义时间戳格式
+    }),
+    winston.format.errors({ stack: true }), // 记录错误堆栈信息
+    winston.format.splat(), // 支持字符串插值
+    winston.format.json() // 使用 JSON 格式
+  ),
+  defaultMeta: { service: 'llm-server' }, // 默认元数据
+  transports: [
+    // 将日志写入文件
+    new winston.transports.File({ filename: 'error.log', level: 'error' }),
+    new winston.transports.File({ filename: 'combined.log' }),
+  ],
+});
+
+// 如果不是生产环境，也输出到控制台
+if (process.env.NODE_ENV !== 'production') {
+  logger.add(new winston.transports.Console({
+    format: winston.format.combine(
+      winston.format.colorize(), // 添加颜色
+      winston.format.simple() // 简化输出
+    )
+  }));
+}
+
 let tempmap = new Map();
 
 let serverSettings = {
@@ -57,8 +90,8 @@ let serverSettings = {
   queryParameters: {},
   transport: 'websocket',
   Rooms: [],
-  clientKeys: {},
-  sillyTavernPassword: new Map(),
+  clientKeys: {},// 存储形式：{clientId: key}
+  sillyTavernPassword: new Map(),// 存储形式：{clientId: hash}
   networkSafe: true,
 };
 
@@ -74,118 +107,74 @@ let sillyTavernkey = new Map();
  * @returns {void}
  */
 async function loadServerSettings() {
-  // 改为 async 函数
+  const settingsDir = join(__dirname, './settings');
   try {
-    const settingsData = fs.readFileSync(join(__dirname, './settings/server_settings.json'), 'utf-8');
-    const fileSettings = JSON.parse(settingsData);
+    // 1. 加载 server_settings.json
+    try {
+      const settingsData = await fss.readFile(join(settingsDir, 'server_settings.json'), 'utf-8');
+      const fileSettings = JSON.parse(settingsData);
 
-    // 遍历文件中的设置
-    for (const key in fileSettings) {
-      // 仅当文件中的值不是 null 或 undefined 时才覆盖
-      if (fileSettings[key] !== null && fileSettings[key] !== undefined) {
-        serverSettings[key] = fileSettings[key];
-      }
+      // 使用 lodash 的 merge 方法深度合并配置
+      serverSettings = merge({}, serverSettings, fileSettings);
+
+      logger.info('Server settings loaded from file.');
+    } catch (error) {
+      logger.warn('No settings file found or error loading settings. Using default settings.', error);
+      // 写入默认配置
+      await fss.writeFile(join(settingsDir, 'server_settings.json'), JSON.stringify(serverSettings, null, 2), 'utf-8');
     }
-    console.log('Server settings loaded from file.');
-  } catch (error) {
-    console.log('No settings file found or error loading settings. Using default settings.');
-    fs.writeFileSync(
-      join(__dirname, './settings/server_settings.json'),
-      JSON.stringify(serverSettings, null, 2),
-      'utf-8',
-    );
-  }
-  let sillyTavernPassword = null;
-  // 自动设置可信客户端/SillyTavern
-  try {
-    const settingsDir = join(__dirname, './settings');
-    const files = fs.readdirSync(settingsDir);
+
+    // 2. 遍历 settings 目录下的其他 JSON 文件
+    const files = await fss.readdir(settingsDir);
 
     for (const file of files) {
-      if (file === 'server_settings.json') {
-        continue; // 跳过服务器设置文件
+      if (file === 'server_settings.json' || !file.endsWith('.json')) {
+        continue;
       }
 
-      if (!file.endsWith('.json')) {
-        continue; // 跳过非 JSON 文件
-      }
-
+      const filePath = join(settingsDir, file);
       try {
-        const filePath = join(settingsDir, file);
-        const fileData = fs.readFileSync(filePath, 'utf-8');
+        const fileData = await fss.readFile(filePath, 'utf-8');
         const jsonData = JSON.parse(fileData);
-        if (jsonData.hasOwnProperty('clientId') || jsonData.hasOwnProperty('isTrust')) {
-          const { clientId, isTrust } = jsonData;
-          if (jsonData.hasOwnProperty('sillyTavernPassWord')) {
-            sillyTavernPassword = jsonData.sillyTavernPassWord;
-          }
-          if (isTrust) {
-            if (clientId.startsWith('SillyTavern')) {
-              trustedSillyTaverns.add(clientId);
-              serverSettings.Rooms.push(clientId);
-              //console.log('serverSettings.Rooms:', serverSettings.Rooms);
-              serverSettings.sillyTavernPassword.set(clientId, sillyTavernPassword);
-              //console.log(
-              //serverSettings.sillyTavernPassword:',
-              //serverSettings.sillyTavernPassword,
-              //);
-              const stkey = await Keys.generateAndStoreClientKey(clientId);
-
-              sillyTavernkey.set(clientId, stkey);
-
-              console.log(`Added trusted SillyTavern: ${clientId}`);
-            } else {
-              trustedClients.add(clientId);
-              serverSettings.Rooms.push(clientId);
-              Keys.generateAndStoreClientKey(clientId);
-              console.log(`Added trusted client: ${clientId}`);
-            }
-          }
-        } else {
-          console.warn(`Skipping file ${file} due to missing clientId or isTrust property.`);
+        // 移除 sillyTavernMasterKey（如果存在）
+        if (has(jsonData, 'sillyTavernMasterKey')) {
+          delete jsonData.sillyTavernMasterKey;
+          // 异步写入文件（不等待）
+          fss.writeFile(filePath, JSON.stringify(jsonData, null, 2), 'utf-8');
         }
-      } catch (parseError) {
-        console.error(`Error parsing JSON in file ${file}:`, parseError);
+
+        // 检查并处理可信客户端/SillyTavern
+        if (has(jsonData, 'clientId') && has(jsonData, 'isTrust') && jsonData.isTrust) {
+          const { clientId } = jsonData;
+          if (clientId.startsWith('SillyTavern')) {
+            trustedSillyTaverns.add(clientId);
+            serverSettings.Rooms.push(clientId); // 确保 Rooms 数组存在
+            // 密码哈希
+            if (has(jsonData, 'sillyTavernPassWord') && isString(jsonData.sillyTavernPassWord) && !startsWith(jsonData.sillyTavernPassWord, '$')) {
+              const hashedPassword = await bcrypt.hash(jsonData.sillyTavernPassWord, saltRounds);
+              serverSettings.sillyTavernPassword.set(clientId, hashedPassword);
+              // 更新文件，移除 sillyTavernPassWord，不再需要单独存储
+              delete jsonData.sillyTavernPassWord;
+              await fss.writeFile(filePath, JSON.stringify(jsonData, null, 2), 'utf-8');
+            }
+            logger.info(`Added trusted SillyTavern: ${clientId}`);
+            const stkey = await Keys.generateAndStoreClientKey(clientId);
+            // 存储 SillyTavern key
+            serverSettings.clientKeys[clientId] = stkey;
+          } else {
+            trustedClients.add(clientId);
+            serverSettings.Rooms.push(clientId);
+            const key = await Keys.generateAndStoreClientKey(clientId);
+            serverSettings.clientKeys[clientId] = key; // 存储客户端 key
+            logger.info(`Added trusted client: ${clientId}`);
+          }
+        }
+      } catch (error) {
+        logger.error(`Error processing file ${file}:`, error);
       }
     }
-  } catch (readDirError) {
-    console.error('Error reading settings directory:', readDirError);
-  }
-
-  // 检查和哈希 SillyTavern 密码
-  if (serverSettings.sillyTavernPassword) {
-    let passwordsChanged = false; // 标记密码是否被修改
-    for (let clientId of serverSettings.sillyTavernPassword.keys()) {
-      console.log('clientId:', clientId);
-      let passwordEntry = serverSettings.sillyTavernPassword.get(clientId);
-
-      // 检查密码是否已经被哈希 (通过检查是否是字符串且以 $ 开头，这是一个简单的约定)
-      if (typeof passwordEntry === 'string' && !passwordEntry.startsWith('$')) {
-        // 没有哈希，进行哈希
-        const hashedPassword = await bcrypt.hash(passwordEntry, saltRounds);
-        serverSettings.sillyTavernPassword.set(clientId, hashedPassword); //直接存储
-        passwordsChanged = true;
-        saveJsonToFile(`./settings/${clientId}-settings.json`, { sillyTavernMasterKey: hashedPassword });
-        console.log(`Hashed password for SillyTavern client: ${clientId}`);
-      } else if (
-        typeof passwordEntry === 'object' &&
-        passwordEntry !== null &&
-        passwordEntry.hasOwnProperty('hashed') &&
-        passwordEntry.hashed === false
-      ) {
-        // 兼容旧版本
-        const hashedPassword = await bcrypt.hash(passwordEntry.password, saltRounds);
-        serverSettings.sillyTavernPassword.set(clientId, hashedPassword); //直接存储
-        passwordsChanged = true;
-        saveJsonToFile(`./settings/${clientId}-settings.json`, { sillyTavernMasterKey: hashedPassword });
-        console.log(`Hashed password for SillyTavern client: ${clientId}`);
-      }
-    }
-
-    // 如果密码被修改，保存到文件
-    if (passwordsChanged) {
-      //saveServerSettings(serverSettings);
-    }
+  } catch (error) {
+    logger.error('Error loading settings:', error);
   }
 }
 
@@ -505,55 +494,62 @@ io.on('connection', async socket => {
   const clientType = socket.handshake.auth.clientType;
   const clientId = socket.handshake.auth.clientId;
 
+  // 提取的通用函数，用于处理客户端连接和断开连接的日志和断开操作
+  function handleClientConnection(message, shouldDisconnect = false) {
+    logger.info(message, { clientId, clientType });
+    if (shouldDisconnect) {
+      socket.disconnect(true);
+    }
+  }
+
   if (!clientId) {
-    console.warn('Client connected without clientId. Disconnecting.');
-    socket.disconnect(true);
+    handleClientConnection('Client connected without clientId. Disconnecting.', true);
     return;
   }
 
   if (clientType === 'monitor') {
-    console.log('Monitor client connected');
+    handleClientConnection('Monitor client connected');
     socket.join('monitor-room'); // 监控客户端仍然在默认命名空间
   } else if (clientType === 'extension') {
-    console.log(`Extension client connected: ${clientId}`);
-    // 为扩展分配唯一房间，仅用于保证后续能通过房间找到对应的 socket。  实际的房间管理在 /rooms 命名空间
-    socket.join(clientId);
-  } else if (clientType === 'extension-Login') {
-    //这个没啥用
-    console.log(`Client ${clientId} is Logined.`);
-  } else if (clientType === 'extension-checkRememberMe') {
-    //这个也没啥用
-    console.log(`Client ${clientId} is checking isRememberMe.`);
+    handleClientConnection(`Extension client connected: ${clientId}`);
+    // 如果 /rooms 命名空间负责房间管理，这里可能不需要
+    // socket.join(clientId);
   }
 
   socket.on('disconnect', reason => {
-    console.log(`Client ${clientId} disconnected: ${reason.reason}`);
+    handleClientConnection(`Client ${clientId} disconnected: ${reason}`);
 
-    // 注意：这里的重连尝试逻辑 *只* 针对那些 *没有* 在其他命名空间（如 /auth）中处理重连的客户端。
-    // 对于 extension 类型的客户端，重连逻辑在 /auth 命名空间中。
-
-    // 启动重试机制 (仅针对 monitor, 因为 extension 在 /auth 中处理)
-    // 如果你还有其他类型的客户端需要在默认命名空间中处理，也需要在这里添加重试逻辑。
+    // 只对 monitor 类型的客户端进行重试
     if (clientType === 'monitor') {
       let attempts = 0;
       const reconnectInterval = setInterval(() => {
         if (socket.connected) {
           clearInterval(reconnectInterval);
-          console.log(`Client ${clientId} reconnected.`);
+          logger.info(`Client ${clientId} reconnected.`);
         } else {
           attempts++;
           if (attempts >= serverSettings.reconnectAttempts) {
-            // 使用 serverSettings
             clearInterval(reconnectInterval);
-            console.log(`Client ${clientId} failed to reconnect.`);
+            logger.info(`Client ${clientId} failed to reconnect.`);
           } else {
-            console.log(
+            logger.info(
               `Client ${clientId} disconnected. Reconnect attempt ${attempts}/${serverSettings.reconnectAttempts}...`,
             );
           }
         }
-      }, serverSettings.reconnectDelay); // 使用 serverSettings
+      }, serverSettings.reconnectDelay);
     }
+  });
+});
+
+// 全局 connection_error 事件处理
+io.on('connection_error', (err) => {
+  logger.error('Connection Error:', {
+    message: err.message,
+    code: err.code, // Socket.IO 错误代码
+    description: err.description, // 错误描述
+    context: err.context, // 错误发生的上下文信息
+    timestamp: new Date().toISOString(),
   });
 });
 
@@ -562,49 +558,13 @@ let connectedClients = new Map(); // 存储已连接的可信客户端
 // /auth 命名空间
 const authNsp = io.of(NAMESPACES.AUTH);
 
-authNsp.on('connection_error', err => {
-  console.error('Connection Error (authNsp):', {
-    message: err.message,
-    code: err.code, // Socket.IO 错误代码
-    description: err.description, // 错误描述
-    context: err.context, // 错误发生的上下文信息
-    socketId: err.socket ? err.socket.id : 'N/A',
-    clientId:
-      err.socket && err.socket.handshake && err.socket.handshake.auth ? err.socket.handshake.auth.clientId : 'N/A',
-    clientType:
-      err.socket && err.socket.handshake && err.socket.handshake.auth ? err.socket.handshake.auth.clientType : 'N/A',
-    timestamp: new Date().toISOString(),
-  });
-  if (err.message === 'parse error') {
-    const socket = err.socket;
-    cleanUpSocket(socket);
-  }
-});
-
-authNsp.on('disconnect', err => {
-  console.error('Connection disconnect (authNsp):', {
-    message: err.message,
-    code: err.code, // Socket.IO 错误代码
-    description: err.description, // 错误描述
-    context: err.context, // 错误发生的上下文信息
-    socketId: err.socket ? err.socket.id : 'N/A',
-    clientId:
-      err.socket && err.socket.handshake && err.socket.handshake.auth ? err.socket.handshake.auth.clientId : 'N/A',
-    clientType:
-      err.socket && err.socket.handshake && err.socket.handshake.auth ? err.socket.handshake.auth.clientType : 'N/A',
-    timestamp: new Date().toISOString(),
-  });
-  if (err.message === 'parse error') {
-    const socket = err.socket;
-    cleanUpSocket(socket);
-  }
-});
-
 authNsp.on('connection', async socket => {
   const clientType = socket.handshake.auth.clientType;
   const clientId = socket.handshake.auth.clientId;
   const clientKey = socket.handshake.auth.key;
   const clientDesc = socket.handshake.auth.desc;
+
+  logger.info('Client connecting to /auth', { clientId, clientType });
 
   const authResult = await checkAuth(socket);
 
@@ -612,6 +572,7 @@ authNsp.on('connection', async socket => {
 
   if (authResult !== true) {
     // 验证失败
+    logger.warn('Authentication failed', { clientId, clientType, reason: authResult.message });
     if (typeof authResult === 'object' && authResult.status === 'error') {
       // 统一所有callback的调用形式
       socket.emit(MSG_TYPE.ERROR, { message: authResult.message }); // 错误消息
@@ -619,6 +580,17 @@ authNsp.on('connection', async socket => {
     socket.disconnect(true);
     return;
   }
+
+  // 认证成功
+  logger.info('Client authenticated', { clientId, clientType });
+
+  // 将客户端信息存储到 clients 对象中
+  clients[clientId] = {
+    clientId: clientId,
+    clientType: clientType,
+    desc: clientDesc,
+    // ... 其他信息 ...
+  };
 
   // 可信客户端 (包括 SillyTavern)
   if (clientKey === 'getKey' && trustedSillyTaverns.has(clientId)) {
@@ -628,9 +600,9 @@ authNsp.on('connection', async socket => {
       Rooms.addClientToRoom(socket, clientId);
       Rooms.setClientDescription(clientId, clientDesc);
       socket.join(clientId);
-      console.log(`Client ${clientId} connected and joined room ${clientId}`);
+      logger.info(`Client ${clientId} connected and joined room ${clientId}`);
     } catch (error) {
-      console.error('Error setting up client:', error);
+      logger.error('Error setting up client:', error);
       // 发送错误消息 (指定目标房间)
       socket.to(clientId).emit(MSG_TYPE.ERROR, { message: 'Error setting up client.' });
       socket.disconnect(true);
@@ -642,7 +614,7 @@ authNsp.on('connection', async socket => {
     Rooms.addClientToRoom(socket, clientId);
     Rooms.setClientDescription(clientId, clientDesc);
     socket.join(clientId);
-    console.log(`Client ${clientId} connected and joined room ${clientId}`);
+    logger.info(`Client ${clientId} connected and joined room ${clientId}`);
     Keys.generateAndStoreClientKey(clientId);
 
     if (clientKey === 'getKey' && serverSettings.networkSafe) {
@@ -650,18 +622,11 @@ authNsp.on('connection', async socket => {
     }
 
     connectedClients.set(clientId, { id: clientId, description: clientDesc });
-
-    let targetSocket = null;
-    authNsp.sockets.forEach(existingSocket => {
-      // 遍历当前命名空间下的所有 socket
-      if (existingSocket.handshake.auth.clientId.startsWith('SillyTavern')) {
-        targetSocket = existingSocket;
-        sendConnectedClientsToSillyTavern(targetSocket); // 发送更新
-      }
-    });
   }
 
   setupSocketListeners(socket); //设置监听器
+  sendConnectedClientsUpdate();      // 发送给监控前端 (所有客户端)
+  sendConnectedClientsToSillyTavern(); // 发送给 SillyTavern (仅非 SillyTavern 客户端)
 });
 
 function setupSocketListeners(socket) {
@@ -731,18 +696,19 @@ function setupSocketListeners(socket) {
   });
 
   socket.on('disconnect', reason => {
-    console.log(`Client disconnected from ${NAMESPACES.AUTH} namespace: ${reason}`);
+    logger.info(`Client disconnected from ${NAMESPACES.AUTH}`, { clientId, reason });
 
     if (connectedClients.has(socket.handshake.auth.clientId)) {
       connectedClients.delete(socket.handshake.auth.clientId);
-      sendConnectedClientsToSillyTavern(); // 发送更新
+      sendConnectedClientsUpdate();      // 发送给监控前端 (所有客户端)
+      sendConnectedClientsToSillyTavern(); // 发送给 SillyTavern (仅非 SillyTavern 客户端)
     }
 
     cleanUpSocket(socket);
   });
 
   socket.on('error', error => {
-    console.error('Socket error:', error);
+    logger.error('Socket error', { clientId: socket.handshake.auth.clientId, error: error.message });
     if (error.message === 'parse error') {
       cleanUpSocket(socket);
     }
@@ -752,164 +718,303 @@ function setupSocketListeners(socket) {
   socket.on(MSG_TYPE.CLIENT_DISCONNETED, reason => {
     const clientId = socket.handshake.auth.clientId;
     const clientType = socket.handshake.auth.clientType;
-    console.log(`Client ${clientId}-${clientType}-authNsp disconnected by client side. Reason: ${reason.reason}`);
+    logger.info(`Client ${clientId} disconnected (client-side)`, { clientType });
     cleanUpSocket(socket);
+  });
+}
+
+// 工具函数：向监控前端发送客户端列表更新 (包含所有类型的客户端)
+function sendConnectedClientsUpdate() {
+  const allClients = Object.values(clients);
+  io.to('monitor-room').emit(MSG_TYPE.UPDATE_CONNECTED_CLIENTS, allClients);
+}
+
+// 工具函数：向所有可信的 SillyTavern 扩展发送 connectedClients (不包含 SillyTavern 客户端)
+function sendConnectedClientsToSillyTavern() {
+  const nonSillyTavernClients = Object.values(clients).filter(client => client.clientType !== 'SillyTavern');
+
+  authNsp.sockets.forEach(socket => {
+    if (socket.handshake.auth.clientType === 'SillyTavern' && trustedSillyTaverns.has(socket.handshake.auth.clientId)) {
+      socket.emit(MSG_TYPE.CONNECTED_CLIENTS_UPDATE, nonSillyTavernClients);
+    }
   });
 }
 
 // /clients 命名空间
 const clientsNsp = io.of(NAMESPACES.CLIENTS);
-clientsNsp.on('connection', async socket => {
-  // 监听 GENERATE_CLIENT_KEY, REMOVE_CLIENT_KEY, getClientList, getClientsInRoom
+
+clientsNsp.on('connection', async (socket) => {
   const clientId = socket.handshake.auth.clientId;
-  console.log(`Client ${clientId} connected to ${NAMESPACES.CLIENTS} namespace`);
+  const clientType = socket.handshake.auth.clientType;
+
+  logger.info('Client connecting to /clients', { clientId, clientType });
 
   const authResult = await checkAuth(socket);
 
   if (authResult !== true) {
     // 验证失败
+    logger.warn('Authentication failed', { clientId, clientType, reason: authResult.message });
     if (typeof authResult === 'object' && authResult.status === 'error') {
-      // 统一所有callback的调用形式
       socket.emit(MSG_TYPE.ERROR, { message: authResult.message }); // 错误消息
     }
     socket.disconnect(true);
     return;
   }
 
-  // 新增：获取所有客户端密钥
-  socket.on(MSG_TYPE.GET_ALL_CLIENT_KEYS, (data, callback) => {
-    if (!trustedSillyTaverns.has(clientId)) {
+  logger.info('Client connected to /clients namespace', { clientId });
+
+  // 辅助函数：检查权限
+  function checkPermission(requiredClientType, callback) {
+    if (requiredClientType === 'SillyTavern' && !trustedSillyTaverns.has(clientId)) {
       if (callback) callback({ status: 'error', message: 'Unauthorized' });
-      return;
+      return false;
     }
+    // 管理前端没有密钥相关的权限
+    if (requiredClientType === 'admin' && clientType !== 'monitor') {
+      if (callback) callback({ status: 'error', message: 'Unauthorized' });
+      return false;
+    }
+    return true;
+  }
+
+  // 获取所有客户端密钥 (仅限 SillyTavern)
+  socket.on(MSG_TYPE.GET_ALL_CLIENT_KEYS, (callback) => {
+    if (!checkPermission('SillyTavern', callback)) return;
+
     try {
-      const keys = Keys.getAllClientKeys(); // 从 Keys.js 获取所有密钥
-      if (callback) callback({ status: 'ok', keys: keys });
+      const keys = Keys.getAllClientKeys();
+      if (callback) callback({ status: 'ok', keys });
     } catch (error) {
+      logger.error('Error getting all client keys:', error);
       if (callback) callback({ status: 'error', message: error.message });
     }
   });
 
-  socket.on(MSG_TYPE.GET_CLIENT_KEY, async (data, callback) => {
-    if (!trustedSillyTaverns.has(clientId)) {
-      if (callback) callback({ status: 'error', message: 'Unauthorized' });
-      return;
-    }
+  // 获取单个客户端密钥 (仅限 SillyTavern)
+  socket.on(MSG_TYPE.GET_CLIENT_KEY, (data, callback) => {
+    if (!checkPermission('SillyTavern', callback)) return;
+
     const targetClientId = data.clientId;
     try {
-      //const key = Keys.clientKeys; //不能直接这么给，要用函数
       const key = Keys.getClientKey(targetClientId);
-      if (callback && key !== null) {
-        callback({ status: 'ok', key: key });
-      } else {
-        callback({ status: 'error', message: 'No keys in stroge!' });
+      if (callback) {
+        callback({ status: 'ok', key: key ?? null }); // 使用空值合并运算符
       }
     } catch (error) {
+      logger.error('Error getting client key:', error);
       if (callback) callback({ status: 'error', message: error.message });
     }
   });
 
-  socket.on(MSG_TYPE.GENERATE_CLIENT_KEY, async (data, callback) => {
-    if (!trustedSillyTaverns.has(clientId)) {
-      if (callback) callback({ status: 'error', message: 'Unauthorized' });
-      return;
-    }
+  // 生成客户端密钥 (仅限 SillyTavern)
+  socket.on(MSG_TYPE.GENERATE_CLIENT_KEY, (data, callback) => {
+    if (!checkPermission('SillyTavern', callback)) return;
+
     const targetClientId = data.targetClientId;
     try {
-      const key = await Keys.generateAndStoreClientKey(targetClientId);
-
-      if (callback) callback({ status: 'ok', key: key });
+      const key = Keys.generateAndStoreClientKey(targetClientId);
+      if (callback) callback({ status: 'ok', key });
     } catch (error) {
+      logger.error('Error generating client key:', error);
       if (callback) callback({ status: 'error', message: error.message });
     }
   });
 
-  socket.on(MSG_TYPE.REMOVE_CLIENT_KEY, (data, callback) => {
-    if (!trustedSillyTaverns.has(clientId)) {
-      if (callback) callback({ status: 'error', message: 'Unauthorized' });
-      return;
-    }
+  // 移除客户端密钥 (仅限 SillyTavern)
+  socket.on(MSG_TYPE.REMOVE_CLIENT_KEY, async (data, callback) => {
+    if (!checkPermission('SillyTavern', callback)) return;
+
     const targetClientId = data.targetClientId;
     try {
-      Keys.removeClientKey(targetClientId);
+      await Keys.removeClientKey(targetClientId);
       if (callback) callback({ status: 'ok' });
     } catch (error) {
+      logger.error('Error removing client key:', error);
       if (callback) callback({ status: 'error', message: error.message });
     }
   });
 
-  // 新增：监听客户端请求更新 connectedClients
-  socket.on(MSG_TYPE.UPDATE_CONNECTED_CLIENTS, (data, callback) => {
-    if (!trustedSillyTaverns.has(clientId)) {
-      if (callback) callback({ status: 'error', message: 'Unauthorized' });
-      return;
-    }
-    console.log('Update Client List Requested!');
-    const clientList = Array.from(connectedClients.values());
-    if (callback) callback({ status: 'ok', clients: clientList });
-  });
-
-  socket.on('getClientList', (data, callback) => {
-    if (!trustedSillyTaverns.has(clientId)) {
-      if (callback) callback({ status: 'error', message: 'Unauthorized' });
-      return;
-    }
+  // 获取客户端列表 (SillyTavern 和管理前端都可以访问)
+  socket.on(MSG_TYPE.GET_CLIENT_LIST, (data, callback) => {
+    // 不需要检查特定权限，但可能需要根据 clientType 或其他条件过滤
     try {
+      const clientTypeFilter = data.clientType; // 例如，可以根据 clientType 过滤
       const clients = [];
-      const allClientKeys = Keys.getAllClientKeys(); // 获取所有客户端密钥
+      const allClientKeys = Keys.getAllClientKeys();
 
       for (const id in allClientKeys) {
-        clients.push({
-          id,
-          description: Rooms.getClientDescription(id), // 获取客户端描述
-          // rooms: Keys.getClientRooms(id), // 如果需要，可以包含客户端所属房间
-        });
+        // 如果提供了 clientTypeFilter，则进行过滤
+        if (!clientTypeFilter || clients[id].clientType === clientTypeFilter) {
+          clients.push({
+            id,
+            description: Rooms.getClientDescription(id),
+            // ... 其他你想要包含的信息 ...
+          });
+        }
       }
 
-      if (callback) callback(clients);
+      if (callback) callback({ success: true, clients });
     } catch (error) {
+      logger.error('Error getting client list:', error);
       if (callback) callback({ status: 'error', message: error.message });
     }
   });
 
-  socket.on('getClientsInRoom', (roomName, callback) => {
-    try {
-      const clients = io.sockets.adapter.rooms.get(roomName);
-      const clientIds = clients ? Array.from(clients).filter(id => id !== undefined) : [];
-
-      // 获取客户端的描述信息
-      const clientInfo = clientIds.map(id => {
-        const desc = Rooms.getClientDescription(id); // 从 Rooms.js 获取描述
-        return { id, description: desc };
-      });
-
-      if (callback) callback(clientInfo);
-    } catch (error) {
-      if (callback) callback({ status: 'error', message: error.message });
-    }
+  // 更新客户端列表 (仅限 SillyTavern)
+  socket.on(MSG_TYPE.UPDATE_CONNECTED_CLIENTS, (data, callback) => {
+    if (!checkPermission('SillyTavern', callback)) return;
+    sendConnectedClientsToSillyTavern();
+    if (callback) callback({ status: 'ok' });
   });
 
-  socket.on('disconnect', reason => {
-    console.log(`Client disconnected from ${NAMESPACES.CLIENTS} namespace: ${reason.reason}`);
+  // 监听客户端断开连接
+  socket.on('disconnect', (reason) => {
+    logger.info(`Client disconnected from ${NAMESPACES.CLIENTS} namespace`, {
+      clientId,
+      reason,
+    });
     cleanUpSocket(socket);
   });
 
-  socket.on(MSG_TYPE.CLIENT_DISCONNETED, reason => {
-    const clientId = socket.handshake.auth.clientId;
-    const clientType = socket.handshake.auth.clientType;
-
-    console.log(`Client ${clientId}-${clientType}-ClientNsp disconnected. Reason: ${reason.reason}`);
-
+  // 监听客户端主动断开连接
+  socket.on(MSG_TYPE.CLIENT_DISCONNETED, () => {
+    logger.info(`Client ${clientId} disconnected (client-side) from /clients`);
     cleanUpSocket(socket);
   });
 });
 
-// 函数：向所有可信的 SillyTavern 扩展发送 connectedClients
-function sendConnectedClientsToSillyTavern(targetSocket) {
-  const clientList = Array.from(connectedClients.values()); // 转换为数组
-  //console.log("clientList", clientList)
-  targetSocket.emit(MSG_TYPE.CONNECTED_CLIENTS_UPDATE, { clients: clientList }); // 使用 clientsNsp
-}
+// /rooms 命名空间
+const roomsNsp = io.of(NAMESPACES.ROOMS);
+
+roomsNsp.on('connection', async (socket) => {
+  const clientId = socket.handshake.auth.clientId;
+  const clientType = socket.handshake.auth.clientType;
+
+  logger.info('Client connecting to /rooms', { clientId, clientType });
+
+  const authResult = await checkAuth(socket);
+
+  if (authResult !== true) {
+    // 验证失败
+    logger.warn('Authentication failed', { clientId, clientType, reason: authResult.message });
+    if (typeof authResult === 'object' && authResult.status === 'error') {
+      socket.emit(MSG_TYPE.ERROR, { message: authResult.message }); // 错误消息
+    }
+    socket.disconnect(true);
+    return;
+  }
+
+  logger.info('Client connected to /rooms namespace', { clientId });
+
+  // 辅助函数：检查权限
+  function checkPermission(requiredClientType, callback) {
+    if (requiredClientType === 'admin' && clientType !== 'monitor') {
+      if (callback) callback({ status: 'error', message: 'Unauthorized' });
+      return false;
+    }
+    return true;
+  }
+
+  // 获取房间列表 (SillyTavern 和管理前端都可以访问)
+  socket.on(MSG_TYPE.GET_ROOMS, (callback) => {
+    try {
+      const rooms = Rooms.getAllRooms(); // 从 Rooms.js 获取所有房间
+      if (callback) callback({ status: 'ok', rooms });
+    } catch (error) {
+      logger.error('Error getting rooms:', error);
+      if (callback) callback({ status: 'error', message: error.message });
+    }
+  });
+
+  // 获取房间内的客户端 (SillyTavern 和管理前端都可以访问)
+  socket.on(MSG_TYPE.GET_CLIENTS_IN_ROOM, (roomName, callback) => {
+    // 不需要检查特定权限，但你可能需要验证 roomName
+    try {
+      const clientsInRoom = io.of(NAMESPACES.ROOMS).adapter.rooms.get(roomName); // 使用房间命名空间
+      const clientIds = clientsInRoom ? Array.from(clientsInRoom) : [];
+
+      // 获取客户端的描述信息
+      const clientInfo = clientIds.map((id) => ({
+        id,
+        description: Rooms.getClientDescription(id), // 从 Rooms.js 获取描述
+        // ... 其他你想要包含的信息 ...
+      }));
+
+      if (callback) callback({ success: true, clients: clientInfo });
+    } catch (error) {
+      logger.error('Error getting clients in room:', error);
+      if (callback) callback({ status: 'error', message: error.message });
+    }
+  });
+
+  // 创建房间 (仅限管理前端)
+  socket.on(MSG_TYPE.CREATE_ROOM, (roomName, callback) => {
+    if (!checkPermission('admin', callback)) return;
+
+    try {
+      Rooms.createRoom(roomName);
+      if (callback) callback({ status: 'ok' });
+    } catch (error) {
+      logger.error('Error creating room:', error);
+      if (callback) callback({ status: 'error', message: error.message });
+    }
+  });
+
+  // 删除房间 (仅限管理前端)
+  socket.on(MSG_TYPE.DELETE_ROOM, (roomName, callback) => {
+    if (!checkPermission('admin', callback)) return;
+
+    try {
+      Rooms.deleteRoom(roomName);
+      if (callback) callback({ status: 'ok' });
+    } catch (error) {
+      logger.error('Error deleting room:', error);
+      if (callback) callback({ status: 'error', message: error.message });
+    }
+  });
+
+  // 将客户端添加到房间 (仅限管理前端)
+  socket.on(MSG_TYPE.ADD_CLIENT_TO_ROOM, (data, callback) => {
+    if (!checkPermission('admin', callback)) return;
+
+    const { clientId, roomName } = data;
+    try {
+      Rooms.addClientToRoom(clientId, roomName);
+      if (callback) callback({ status: 'ok' });
+    } catch (error) {
+      logger.error('Error adding client to room:', error);
+      if (callback) callback({ status: 'error', message: error.message });
+    }
+  });
+
+  // 将客户端从房间移除 (仅限管理前端)
+  socket.on(MSG_TYPE.REMOVE_CLIENT_FROM_ROOM, (data, callback) => {
+    if (!checkPermission('admin', callback)) return;
+
+    const { clientId, roomName } = data;
+    try {
+      Rooms.removeClientFromRoom(clientId, roomName);
+      if (callback) callback({ status: 'ok' });
+    } catch (error) {
+      logger.error('Error removing client from room:', error);
+      if (callback) callback({ status: 'error', message: error.message });
+    }
+  });
+
+  socket.on('disconnect', (reason) => {
+    logger.info(`Client disconnected from ${NAMESPACES.CLIENTS} namespace`, {
+      clientId,
+      reason,
+    });
+    cleanUpSocket(socket);
+  });
+
+  // 监听客户端主动断开连接
+  socket.on(MSG_TYPE.CLIENT_DISCONNETED, () => {
+    logger.info(`Client ${clientId} disconnected (client-side) from /clients`);
+    cleanUpSocket(socket);
+  });
+});
 
 // /llm 命名空间
 const llmNsp = io.of(NAMESPACES.LLM);

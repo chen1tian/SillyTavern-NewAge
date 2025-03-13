@@ -6,6 +6,8 @@ import { uuidv4 } from '../../lib/uuid/uuid.js';
 import * as ss from '../../lib/@sap_oss/node-socketio-stream.js';
 import { io } from '../../lib/Socket.io/socket.io.js';
 
+import { saveJsonToFile } from '../../dist/function_call.js'
+
 const streamDataTextArea = document.getElementById('streamDataTextArea');
 const messageInput = document.getElementById('messageInput');
 const sendButton = document.getElementById('sendButton');
@@ -24,6 +26,25 @@ const authData = {
   key: '2b$10$tBhT3d0vsSo66fthSdbdXeYNCA8DZpUCMS.xD3r.8SY82F/RjCkvW',
   desc: '服务器监控网页',
 };
+
+// 该客户端的设置
+const settings = {
+  "clientId": clientId,
+  "isTrust": true
+}
+/**
+ * 保存客户端设置到指定的路径 
+*/
+async function saveJson() {
+  let result;
+  try {
+    result = saveJsonToFile(`../../settings/${clientId}-settings.json`, settings);
+    console.log("Save Json success!");
+  }
+  catch {
+    console.error("Save Json error,reason:", result.error)
+  }
+}
 
 const { createSocket: newSocket, cleanupAllSockets } = manageSockets(createSocket);
 
@@ -334,7 +355,7 @@ function streamToElement(socket, eventName, elementId, options = {}) {
   };
 }
 
-function sendMessage(message) {
+function sendMessage(message, requestType) {
   if (!message) {
     console.warn('Cannot send empty message.');
     return;
@@ -354,6 +375,7 @@ function sendMessage(message) {
       target: SillyTavernId[0], // 确保 SillyTavernId[0] 存在
       requestId: uuidv4(),
       message: message,
+      requestType: requestType,
     },
     response => {
       if (response.status === 'error') {
@@ -364,6 +386,9 @@ function sendMessage(message) {
     },
   );
 }
+
+// 自动保存该客户端的设置
+saveJson();
 
 // 向服务器提交认证信息
 const authsocket = newSocket(NAMESPACES.AUTH, authData, false, true);
@@ -430,7 +455,7 @@ llmSocket.on('connect', () => {
   // 监听按钮点击和回车事件 (确保这些代码在 llmSocket 连接后执行)
   sendButton.addEventListener('click', () => {
     const message = messageInput.value;
-    sendMessage(message);
+    sendMessage(message, 'newMessage');
     messageInput.value = '';
   });
 
@@ -438,7 +463,7 @@ llmSocket.on('connect', () => {
     if (event.key === 'Enter') {
       event.preventDefault();
       const message = messageInput.value;
-      sendMessage(message);
+      sendMessage(message, 'newMessage');
       messageInput.value = '';
     }
   });

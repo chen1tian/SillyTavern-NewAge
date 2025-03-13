@@ -64,6 +64,7 @@ let isNewChat = true; // 标志：是否为新的聊天
 let isRemembered = false;
 let clientId = generateClientId(); // 声明 clientId
 let clientDesc = '这是一个SillyTaven扩展'; //声明clientDesc
+let clientType = 'SillyTavern';
 let fullServerAddress = 'http://localhost:4000'; //声明 fullServerAddress
 
 function sleep(ms) {
@@ -351,7 +352,7 @@ async function checkRememberMe() {
   const tempSocket = createNamedSocket(
     NAMESPACES.FUNCTION_CALL,
     {
-      clientType: 'extension_checkRememberMe',
+      clientType: clientType,
       clientId: clientId,
       desc: clientDesc,
     },
@@ -428,7 +429,7 @@ async function loadNetworkSafeSetting() {
   const tempSocket = createNamedSocket(
     NAMESPACES.FUNCTION_CALL,
     {
-      clientType: 'extension_loadNetworkSafe',
+      clientType: clientType,
       clientId: clientId,
       desc: clientDesc,
     },
@@ -492,7 +493,7 @@ function onLogoutClick() {
   const forgetMeSocket = createNamedSocket(
     NAMESPACES.FUNCTION_CALL,
     {
-      clientType: 'extension_forgetMeSocket', //或者用其他的类型
+      clientType: clientType, //或者用其他的类型
       clientId: clientId,
       desc: clientDesc,
     },
@@ -654,7 +655,7 @@ async function connectToServer() {
   tempMainSocket = createNamedSocket(
     NAMESPACES.SILLY_TAVERN,
     {
-      clientType: 'extension_tempMainSocket',
+      clientType: clientType,
       clientId: clientId,
       desc: clientDesc,
       key: 'getKey',
@@ -699,7 +700,7 @@ async function connectToServer() {
     llmSocket = createNamedSocket(
       NAMESPACES.LLM,
       {
-        clientType: 'extension_mainSocket',
+        clientType: clientType,
         clientId: clientId,
         desc: clientDesc,
         key: sillyTavernMasterKey, // 使用获取到的 key
@@ -753,7 +754,7 @@ function createNamespaceConnections() {
   authSocket = createNamedSocket(
     NAMESPACES.AUTH,
     {
-      clientType: 'extension_authSocket', // 可以使用不同的 clientType
+      clientType: clientType, // 可以使用不同的 clientType
       clientId: clientId,
       desc: clientDesc,
       key: llmSocket.auth.key, // 使用主连接的密钥
@@ -767,7 +768,7 @@ function createNamespaceConnections() {
   functionCallSocket = createNamedSocket(
     NAMESPACES.FUNCTION_CALL,
     {
-      clientType: 'extension_functionCallSocket',
+      clientType: clientType,
       clientId: clientId,
       desc: clientDesc,
       key: llmSocket.auth.key,
@@ -781,7 +782,7 @@ function createNamespaceConnections() {
   roomsSocket = createNamedSocket(
     NAMESPACES.CLIENTS,
     {
-      clientType: 'extension_roomsSocket',
+      clientType: clientType,
       clientId: clientId,
       desc: clientDesc,
       key: llmSocket.auth.key,
@@ -795,7 +796,7 @@ function createNamespaceConnections() {
   clientsSocket = createNamedSocket(
     NAMESPACES.CLIENTS,
     {
-      clientType: 'extension_clientsSocket',
+      clientType: clientType,
       clientId: clientId,
       desc: clientDesc,
       key: llmSocket.auth.key,

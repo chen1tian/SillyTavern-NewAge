@@ -1,40 +1,56 @@
 // lib/constants.js
 
 const MSG_TYPE = {
+  // 通用
+  ERROR: 'ERROR',
+  WARNING: 'WARNING',
+
+  // 连接与认证
+  LOGIN: 'LOGIN', // 客户端 -> 服务器: 登录请求
+  CLIENT_KEY_ASSIGNED: 'CLIENT_KEY_ASSIGNED', // 服务器 -> 客户端: 分配的客户端密钥
+  // CLIENT_KEY: 'CLIENT_KEY', // 已废弃: 客户端密钥现在通过 auth 字段在连接时发送
+  CLIENT_DISCONNECTED: 'CLIENT_DISCONNECTED', // 服务器/客户端 -> 客户端/服务器: 客户端断开连接
+  UPDATE_CONNECTED_CLIENTS: 'UPDATE_CONNECTED_CLIENTS', // 服务器 -> SillyTavern: 更新已连接客户端列表（用于ST显示）
+  CONNECTED_CLIENTS_UPDATE: "CONNECTED_CLIENTS_UPDATE",// 服务器 -> 客户端: 更新已连接客户端列表（用于客户端显示）
+
+  // 客户端管理 (SillyTavern -> 服务器)
+  GET_CLIENT_LIST: 'GET_CLIENT_LIST',
+  GET_ALL_CLIENT_KEYS: 'GET_ALL_CLIENT_KEYS', // 获取所有客户端密钥（用于服务器内部管理）
+  UPDATE_CONNECTED_CLIENTS: 'UPDATE_CONNECTED_CLIENTS',  // 服务器 -> 管理前端：客户端连接/断开/更新
+  GENERATE_CLIENT_KEY: 'GENERATE_CLIENT_KEY',
+  REMOVE_CLIENT_KEY: 'REMOVE_CLIENT_KEY',
+  GET_CLIENT_KEY: 'GET_CLIENT_KEY', // 获取单个客户端的密钥
+
+  // 房间管理 (SillyTavern -> 服务器)
+  CREATE_ROOM: 'CREATE_ROOM',
+  DELETE_ROOM: 'DELETE_ROOM',
+  GET_ROOMS: 'GET_ROOMS',
+  ADD_CLIENT_TO_ROOM: 'ADD_CLIENT_TO_ROOM',
+  REMOVE_CLIENT_FROM_ROOM: 'REMOVE_CLIENT_FROM_ROOM',
+  GET_CLIENTS_IN_ROOM: 'GET_CLIENTS_IN_ROOM',
+
+  // LLM 交互
+  LLM_REQUEST: 'LLM_REQUEST', // 客户端/服务器 -> 服务器/SillyTavern：LLM 对话请求
+  LLM_RESPONSE: 'LLM_RESPONSE', // 服务器/SillyTavern -> 客户端/服务器：LLM 响应
+
+  // SillyTavern 相关
+  IDENTIFY_SILLYTAVERN: 'IDENTIFY_SILLYTAVERN', // SillyTavern -> 服务器: 身份标识
+  CLIENT_SETTINGS: 'CLIENT_SETTINGS', // SillyTavern -> 服务器：客户端设置
+  GET_SILLYTAVERN_EXTENSION: "GET_SILLYTAVERN_EXTENSION",
+
+  // 函数调用
+  FUNCTION_CALL: 'FUNCTION_CALL', // 客户端 -> 服务器：函数调用
+
+  // 流式消息类型 (SillyTavern扩展端和服务器之间的流式传输)
   NON_STREAM: 0,
   STREAM_START: 1,
-  STREAM_DATA: 2, // (Deprecated: 保留兼容性，但不推荐使用)
-  STREAM_END: 3, // (Deprecated: 保留兼容性，但不推荐使用)
+  STREAM_DATA: 2,
+  STREAM_END: 3,
   STREAM_DATA_FIRST: 4,
   STREAM_DATA_MIDDLE: 5,
   STREAM_DATA_LAST: 6,
   STREAM_DATA_RETRY: 7,
   STREAM_DATA_FAILED: 8,
-  LLM_REQUEST: 9, // 客户端/服务器 -> 服务器/SillyTavern：LLM 对话请求
-  LLM_RESPONSE: 10, // 服务器/SillyTavern -> 客户端/服务器：LLM 响应
-  IDENTIFY_SILLYTAVERN: 11, // SillyTavern -> 服务器: 身份标识 (并设置主密钥)
-  CLIENT_SETTINGS: 12, // SillyTavern -> 服务器：客户端设置
-  CREATE_ROOM: 13, // SillyTavern -> 服务器：创建房间
-  DELETE_ROOM: 14, // SillyTavern -> 服务器：删除房间
-  ADD_CLIENT_TO_ROOM: 15, // SillyTavern -> 服务器：将客户端添加到房间
-  REMOVE_CLIENT_FROM_ROOM: 16, // SillyTavern/客户端 -> 服务器：将客户端从房间移除
-  GENERATE_CLIENT_KEY: 17, // SillyTavern -> 服务器：生成客户端密钥
-  REMOVE_CLIENT_KEY: 18, // SillyTavern -> 服务器：移除客户端密钥
-  GET_ROOMS: 19, // SillyTavern -> 服务器：获取房间列表
-  CLIENT_KEY: 20, // (Deprecated: 客户端密钥现在通过 auth 字段在连接时发送)
-  ERROR: 21, // 服务器 -> 客户端/SillyTavern: 错误
-  FUNCTION_CALL: 22, // 客户端 -> 服务器：函数调用
-  LOGIN: 23, // 新增: 客户端 -> 服务器: 登录请求
-  GET_CLIENT_LIST: 24, // 新增: SillyTavern -> 服务器：获取客户端列表
-  GET_CLIENTS_IN_ROOM: 25, //新增: SillyTavern -> 服务器：获取房间内的客户端
-  GET_CLIENT_KEY: 26, //新增: SillyTavern -> 服务器：获取客户端密钥
-  CLIENT_DISCONNETED: 27,
-  CLIENT_KEY_ASSIGNED: 28,
-  GET_ALL_CLIENT_KEYS: 29,
-  WARNING: 30,
-  CONNECTED_CLIENTS_UPDATE: 31,
-  UPDATE_CONNECTED_CLIENTS: 32, // 新增
-  GET_SILLYTAVERN_EXTENSION: 33
 };
 
 const STREAM_EVENTS = {
@@ -47,20 +63,20 @@ const STREAM_EVENTS = {
   DATA_FAILED: 'CLIENT_STREAM_DATA_FAILED',
   END: 'CLIENT_STREAM_END',
 
-  //服务器 -> 客户端
+  // 服务器 -> 客户端
   streamed_data: 'SERVER_STREAM_DATA',
   streamed_end: 'SERVER_STREAM_END',
 };
 
 const NAMESPACES = {
   DEFAULT: '/',
-  FUNCTION_CALL: '/function_call',
   AUTH: '/auth',
-  ROOMS: '/rooms',
   CLIENTS: '/clients',
+  ROOMS: '/rooms',
   LLM: '/llm',
   SILLY_TAVERN: '/sillytavern',
-
+  FUNCTION_CALL: '/function_call',
 };
 
-export { MSG_TYPE, STREAM_EVENTS, NAMESPACES };
+// 导出时按字母顺序排列，方便查找
+export { MSG_TYPE, NAMESPACES, STREAM_EVENTS };

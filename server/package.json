@@ -5,19 +5,30 @@
   "type": "module",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "dev": "vitepress dev docs",
+    "build": "vitepress build docs",
+    "serve": "vitepress serve docs"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
     "@sap_oss/node-socketio-stream": "^1.0.8",
+    "axios": "^1.8.3",
     "bcryptjs": "^3.0.2",
+    "dayjs": "^1.11.13",
+    "dotenv": "^16.4.7",
+    "element-plus": "^2.9.6",
     "express": "^4.21.2",
+    "lodash": "^4.17.21",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "serve-static": "^1.16.2",
+    "simple-git": "^3.27.0",
     "socket.io": "^4.0.0",
-    "styled-components": "^6.1.15"
+    "styled-components": "^6.1.15",
+    "vitepress": "^1.6.3",
+    "winston": "^3.17.0"
   }
 }

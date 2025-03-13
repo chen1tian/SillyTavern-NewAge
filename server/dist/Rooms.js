@@ -1,221 +1,126 @@
 // server/dist/Rooms.js
-import fs from 'fs';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { NAMESPACES } from '../../lib/constants'; 
+import { io } from '../server.js'; // 从 server.js 导入 io 对象
+import winston from 'winston';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const logger = winston.createLogger({ // 确保已配置好 Winston logger
+  level: 'info',
+  format: winston.format.combine(
+    winston.format.timestamp({
+      format: 'YYYY-MM-DD HH:mm:ss'
+    }),
+    winston.format.errors({ stack: true }),
+    winston.format.splat(),
+    winston.format.json()
+  ),
+  defaultMeta: { service: 'rooms-service' },
+  transports: [
+    new winston.transports.File({ filename: 'error.log', level: 'error' }),
+    new winston.transports.File({ filename: 'combined.log' }),
+  ],
+});
 
-const settingsPath = join(__dirname, '../../settings.json'); // 指向 server/settings.json  //应该是server_settings.json
-let serverSettings;
-
-// 在调用任何函数前都必须先load
-function loadSettings() {
+// 添加客户端到房间
+function addClientToRoom(clientId, roomName) {
   try {
-    const settingsData = fs.readFileSync(join(__dirname, '../../settings/server_settings.json'), 'utf-8');
-    serverSettings = { ...serverSettings, ...JSON.parse(settingsData) };
-    console.log('Server settings loaded from file.');
+    io.of(NAMESPACES.ROOMS).adapter.rooms.get(roomName)?.add(clientId); // 使用可选链
+    logger.info(`Client ${clientId} added to room ${roomName}`);
   } catch (error) {
-    console.log('No settings file found or error loading settings. Using default settings.');
-    fs.writeFileSync(
-      join(__dirname, '../../settings/server_settings.json'),
-      JSON.stringify(serverSettings, null, 2),
-      'utf-8',
-    );
-  }
-}
-
-function saveSettings() {
-  try {
-    fs.writeFileSync(
-      join(__dirname, '../../settings/server_settings.json'),
-      JSON.stringify(serverSettings, null, 2),
-      'utf-8',
-    );
-    console.log('Server settings saved successfully.');
-  } catch (error) {
-    console.error('Failed to save server settings:', error);
-    //throw error; // 可以选择抛出错误
+    logger.error(`Error adding client ${clientId} to room ${roomName}:`, error);
+    throw new Error(`Failed to add client ${clientId} to room ${roomName}: ${error.message}`);
   }
 }
 
 // 创建房间
-function createRoom(socket, roomName) {
-  if (!socket || !socket.handshake || !socket.handshake.auth) {
-    console.warn('Invalid socket object in createRoom');
-    return false;
-  }
-  const clientId = socket.handshake.auth.clientId;
-  if (!clientId) {
-    console.warn('Invalid clientId object in createRoom');
-    return false;
-  }
-
+function createRoom(roomName) {
   try {
-    // 使用 Socket.IO 的 join 方法
-    socket.join(roomName);
-    console.log(`Client ${clientId}-${socket.handshake.auth.clientType} created and joined room ${roomName}`);
-    return true;
+    if (io.of(NAMESPACES.ROOMS).adapter.rooms.has(roomName)) {
+      throw new Error(`Room ${roomName} already exists`);
+    }
+    // Socket.IO 会自动创建房间，无需手动操作
+    logger.info(`Room ${roomName} created`);
   } catch (error) {
-    console.error('Error in createRoom:', error);
-    return false;
+    logger.error(`Error creating room ${roomName}:`, error);
+    throw new Error(`Failed to create room ${roomName}: ${error.message}`);
   }
 }
 
 // 删除房间
-function deleteRoom(socket, roomName) {
-  if (!socket || !socket.handshake || !socket.handshake.auth) {
-    console.warn('Invalid socket object in deleteRoom');
-    return false;
-  }
-  const clientId = socket.handshake.auth.clientId;
-  if (!clientId) {
-    console.warn('Invalid clientId object in deleteRoom');
-    return false;
-  }
-
-  // 阻止删除与 clientId 同名的房间
-  if (clientId === roomName) {
-    console.warn(`Client ${clientId} cannot delete room ${roomName} (same as client ID)`);
-    return false;
-  }
-
+function deleteRoom(roomName) {
   try {
-    // 获取房间内的所有客户端
-    const clientsInRoom = io.sockets.adapter.rooms.get(roomName); // 假设你已经有了 io 对象
-
-    if (clientsInRoom) {
-      // 强制所有客户端离开房间
-      for (const clientSocketId of clientsInRoom) {
-        const clientSocket = io.sockets.sockets.get(clientSocketId); // 使用 io.sockets.sockets 获取 socket
-        if (clientSocket) {
-          clientSocket.leave(roomName);
-        }
-      }
+    const room = io.of(NAMESPACES.ROOMS).adapter.rooms.get(roomName);
+    if (!room) {
+      throw new Error(`Room ${roomName} does not exist`);
     }
 
-    console.log(`Room ${roomName} deleted by client ${clientId}`);
-    return true;
-  } catch (error) {
-    console.error('Error in deleteRoom:', error);
-    return false;
-  }
-}
-
-// 将客户端添加到房间
-function addClientToRoom(socket, roomName) {
-  if (!socket || !socket.handshake || !socket.handshake.auth) {
-    console.warn('Invalid socket object in addClientToRoom');
-    return false;
-  }
-  const clientId = socket.handshake.auth.clientId;
-  if (!clientId) {
-    console.warn('Invalid clientId object in addClientToRoom');
-    return false;
-  }
-  try {
-    socket.join(roomName);
-    console.log(`Client ${clientId} added to room ${roomName}`);
-    return true;
-  } catch (error) {
-    console.error('Error in addClientToRoom:', error);
-    return false;
-  }
-}
-
-// 将客户端从房间移除
-function removeClientFromRoom(socket, roomName) {
-  if (!socket || !socket.handshake || !socket.handshake.auth) {
-    console.warn('Invalid socket object in removeClientFromRoom');
-    return false;
-  }
-  const clientId = socket.handshake.auth.clientId;
-
-  if (!clientId) {
-    console.warn('Invalid clientId object in removeClientFromRoom');
-    return false;
-  }
-  // 阻止客户端将自己从与其 ID 同名的房间中移除
-  //if (clientId === roomName) {
-  //  console.warn(`Client ${clientId} cannot remove themselves from room ${roomName} (same as client ID)`);
-  //  return false;
-  //}
-
-  try {
-    socket.leave(roomName);
-    console.log(`Client ${clientId} removed from room ${roomName}`);
-    return true;
-  } catch (error) {
-    console.error('Error in removeClientFromRoom:', error);
-    return false;
-  }
-}
-
-//检查客户端是否在房间内
-function isClientInRoom(clientId, roomName) {
-  try {
-    const clients = io.sockets.adapter.rooms.get(roomName); // 获取房间内的所有客户端
-    if (!clients) {
-      return false; // 房间不存在
+    // 将所有客户端移出房间
+    for (const clientId of room) {
+      removeClientFromRoom(clientId, roomName);
     }
 
-    for (const clientSocketId of clients) {
-      const clientSocket = io.sockets.sockets.get(clientSocketId);
-      if (clientSocket && clientSocket.handshake.auth.clientId === clientId) {
-        return true; // 找到匹配的 clientId
-      }
-    }
-    return false;
+    // Socket.IO 会自动删除空的房间，无需手动操作
+    logger.info(`Room ${roomName} deleted`);
   } catch (error) {
-    console.error('Error in isClientInRoom:', error);
-    return false;
+    logger.error(`Error deleting room ${roomName}:`, error);
+    throw new Error(`Failed to delete room ${roomName}: ${error.message}`);
   }
 }
 
 // 获取所有房间
 function getAllRooms() {
   try {
-    const rooms = io.sockets.adapter.rooms; // 获取所有房间
-    return [...rooms.keys()]; // 返回房间名的数组
+    return Array.from(io.of(NAMESPACES.ROOMS).adapter.rooms.keys());
   } catch (error) {
-    console.error('Error in getAllRooms:', error);
-    return [];
+    logger.error('Error getting all rooms:', error);
+    throw new Error(`Failed to get all rooms: ${error.message}`);
   }
 }
 
-// 获取指定客户端所在的房间列表 (可选, 根据需要实现)
-function getClientRooms(socket) {
-  if (!socket || !socket.rooms) {
-    console.warn('Invalid socket object in getClientRooms');
-    return [];
-  }
+// 获取客户端所在的房间列表 (可选, 根据需要实现)
+function getClientRooms(clientId) {
   try {
-    return Array.from(socket.rooms);
+    const allRooms = io.of(NAMESPACES.ROOMS).adapter.rooms;
+    const clientRooms = [];
+    for (const [roomName, clientSet] of allRooms) {
+      if (clientSet.has(clientId)) {
+        clientRooms.push(roomName);
+      }
+    }
+    return clientRooms;
   } catch (error) {
-    console.error('Error in getClientRooms:', error);
-    return [];
+    logger.error(`Error getting rooms for client ${clientId}:`, error);
+    throw new Error(`Failed to get rooms for client ${clientId}: ${error.message}`);
   }
 }
 
-// 新增：设置客户端描述 (可选, 根据需要决定是否保留)
-function setClientDescription(clientId, description) {
-  console.warn('This Function is Deprecated, and do nothing.');
+//检查客户端是否在房间内
+function isClientInRoom(clientId, roomName) {
+  try {
+    const room = io.of(NAMESPACES.ROOMS).adapter.rooms.get(roomName);
+    return room ? room.has(clientId) : false;
+  } catch (error) {
+    logger.error(`Error checking if client ${clientId} is in room ${roomName}:`, error);
+    throw new Error(`Failed to check if client ${clientId} is in room ${roomName}: ${error.message}`);
+  }
 }
 
-// 新增：获取客户端描述 (可选, 根据需要决定是否保留)
-function getClientDescription(clientId) {
-  console.warn('This Function is Deprecated, and do nothing.');
+// 将客户端从房间移除
+function removeClientFromRoom(clientId, roomName) {
+  try {
+    io.of(NAMESPACES.ROOMS).adapter.rooms.get(roomName)?.delete(clientId); // 使用可选链
+    logger.info(`Client ${clientId} removed from room ${roomName}`);
+  } catch (error) {
+    logger.error(`Error removing client ${clientId} from room ${roomName}:`, error);
+    throw new Error(`Failed to remove client ${clientId} from room ${roomName}: ${error.message}`);
+  }
 }
 
 export {
+  addClientToRoom,
   createRoom,
   deleteRoom,
-  addClientToRoom,
-  removeClientFromRoom,
-  isClientInRoom,
   getAllRooms,
   getClientRooms, // 可选
-  setClientDescription, // 可选
-  getClientDescription, // 可选
+  isClientInRoom,
+  removeClientFromRoom,
 };
-
