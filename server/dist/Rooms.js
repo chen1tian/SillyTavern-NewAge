@@ -1,24 +1,8 @@
 // server/dist/Rooms.js
-import { NAMESPACES } from '../../lib/constants'; 
+import { NAMESPACES } from '../../lib/constants.js'; 
 import { io } from '../server.js'; // 从 server.js 导入 io 对象
-import winston from 'winston';
 
-const logger = winston.createLogger({ // 确保已配置好 Winston logger
-  level: 'info',
-  format: winston.format.combine(
-    winston.format.timestamp({
-      format: 'YYYY-MM-DD HH:mm:ss'
-    }),
-    winston.format.errors({ stack: true }),
-    winston.format.splat(),
-    winston.format.json()
-  ),
-  defaultMeta: { service: 'rooms-service' },
-  transports: [
-    new winston.transports.File({ filename: 'error.log', level: 'error' }),
-    new winston.transports.File({ filename: 'combined.log' }),
-  ],
-});
+import { logger } from './logger.js';
 
 // 添加客户端到房间
 function addClientToRoom(clientId, roomName) {

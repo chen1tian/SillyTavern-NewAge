@@ -4,9 +4,9 @@ import {
   reloadCurrentChat,
   saveChatConditional,
   substituteParamsExtended,
+  system_message_types
 } from '../../../../../../script.js';
 import { handlePartialRender } from '../index.js';
-import { chat, substituteParamsExtended, system_message_types } from '../../../../../../script.js';
 import { stringToRange } from '../../../../../utils.js';
 
 /**

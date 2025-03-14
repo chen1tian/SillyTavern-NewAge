@@ -1,27 +1,15 @@
 // server/dist/Keys.js
 
 import * as fss from 'fs/promises';
-import { join } from 'path';
+import { dirname, join, isAbsolute, normalize, relative, sep } from 'path';
+import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
-import bcrypt from 'bcrypt';
-import winston from 'winston';
+import bcrypt from 'bcryptjs';
 
-const logger = winston.createLogger({ // 确保已配置好 Winston logger
-  level: 'info',
-  format: winston.format.combine(
-    winston.format.timestamp({
-      format: 'YYYY-MM-DD HH:mm:ss'
-    }),
-    winston.format.errors({ stack: true }),
-    winston.format.splat(),
-    winston.format.json()
-  ),
-  defaultMeta: { service: 'key-service' },
-  transports: [
-    new winston.transports.File({ filename: 'error.log', level: 'error' }),
-    new winston.transports.File({ filename: 'combined.log' }),
-  ],
-});
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+import { logger } from './logger.js';
 
 const saltRounds = 10;
 const clientsPath = join(__dirname, '../keys/clients.json'); // 客户端密钥文件路径

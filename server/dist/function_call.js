@@ -4,25 +4,10 @@ import * as fss from 'fs/promises';
 import express from 'express';
 import { dirname, join, isAbsolute, normalize, relative, sep } from 'path';
 import { fileURLToPath } from 'url';
-import winston from 'winston';
-import { serverSettings } from '../server'; // 导入 serverSettings
 
-const logger = winston.createLogger({
-  level: 'info',
-  format: winston.format.combine(
-    winston.format.timestamp({
-      format: 'YYYY-MM-DD HH:mm:ss'
-    }),
-    winston.format.errors({ stack: true }),
-    winston.format.splat(),
-    winston.format.json()
-  ),
-  defaultMeta: { service: 'function-call-service' },
-  transports: [
-    new winston.transports.File({ filename: 'error.log', level: 'error' }),
-    new winston.transports.File({ filename: 'combined.log' }),
-  ],
-});
+import { serverSettings } from '../server.js'; // 导入 serverSettings
+
+import { logger } from './logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

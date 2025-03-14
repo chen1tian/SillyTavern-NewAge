@@ -733,7 +733,7 @@ async function connectToServer() {
       loadSettings();
 
       // 刷新房间和客户端列表
-      refreshRoomList();
+      //refreshRoomList();
     });
 
     // 其他事件监听 (可选, 如果需要在默认命名空间监听其他事件)
@@ -790,7 +790,7 @@ function createNamespaceConnections() {
     true,
   );
   roomsSocket.connect();
-  setupRoomsSocketListeners();
+  //setupRoomsSocketListeners();
 
   // Clients 命名空间
   clientsSocket = createNamedSocket(
