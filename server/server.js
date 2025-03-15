@@ -20,6 +20,7 @@ import { readJsonFromFile, saveJsonToFile, addStaticResources } from './dist/fun
 import * as Rooms from './dist/Rooms.js';
 import * as Keys from './dist/Keys.js';
 import { logger } from './dist/logger.js';
+import { addDebugClients, removeDebugClients } from './dist/debug.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -63,6 +64,7 @@ let serverSettings = {
   sillyTavernPassword: new Map(),// 存储形式：{clientId: hash}
   networkSafe: true,
   restrictedFiles: [],
+  debugMode: false,
 };
 
 export { serverSettings };
@@ -437,28 +439,21 @@ async function checkAuth(socket, skipNetworkSafeCheck = serverSettings.networkSa
 
   // 1. networkSafe 模式检查
   if (
-    skipNetworkSafeCheck &&
-    serverSettings.networkSafe &&
-    (trustedClients.has(clientId) || trustedSillyTaverns.has(clientId))
-  ) {
+    skipNetworkSafeCheck && serverSettings.networkSafe) {
     console.warn(`Network safe mode is enabled. Skipping authentication for client: ${clientId}`);
     return true; // 网络安全模式下直接通过
-  }
-
-  // 2. 客户端信任检查
-  if (!trustedClients.has(clientId) || !trustedSillyTaverns.has(clientId)) {
+  } else if (!trustedClients.has(clientId) || !trustedSillyTaverns.has(clientId)) {// 2. 客户端信任检查
     console.warn(`Client ${clientId} is not trusted.`);
     console.log('trustedSillyTaverns:', trustedClients);
     return { status: 'error', message: 'Client is not trusted.' }; // 返回错误对象
+  } else {
+    if (clientKey !== 'getKey' && !(await isValidKey(clientId, clientKey))) {// 3. 密钥验证 (getKey 除外)
+      console.warn(`Client ${clientId} provided invalid key.`);
+      return { status: 'error', message: 'Invalid key.' }; // 返回错误对象
+    } else {
+      return true;// 所有检查通过
+    }
   }
-
-  // 3. 密钥验证 (getKey 除外)
-  if (clientKey !== 'getKey' && !(await isValidKey(clientId, clientKey))) {
-    console.warn(`Client ${clientId} provided invalid key.`);
-    return { status: 'error', message: 'Invalid key.' }; // 返回错误对象
-  }
-
-  return true; // 所有检查通过
 }
 
 // 默认命名空间 (/)
@@ -606,6 +601,7 @@ authNsp.on('connection', async socket => {
 function setupSocketListeners(socket) {
   // 监听 GET_CLIENT_KEY
   socket.on(MSG_TYPE.GET_CLIENT_KEY, async (data, callback) => {
+    console.log("socket.handshake.auth.clientId:", socket.handshake.auth.clientId)
     if (socket.handshake.auth.clientId === 'monitor') {
       // 特殊处理：返回管理前端的密钥
       const adminKey = await Keys.generateAndStoreClientKey(socket.handshake.auth.clientId)
@@ -776,13 +772,16 @@ clientsNsp.on('connection', async (socket) => {
 
   // 获取单个客户端密钥
   socket.on(MSG_TYPE.GET_CLIENT_KEY, (data, callback) => {
+    const sourceClientId = socket.handshake.auth.clientId;
+    const targetClientId = data.clientId;
+
     if (typeof callback !== 'function') {
-      logger.warn('Callback is not a function', { clientId, event: MSG_TYPE.GET_CLIENT_KEY });
+      logger.warn('Callback is not a function', { sourceClientId, event: MSG_TYPE.GET_CLIENT_KEY });
       return;
     }
 
     // 不需要 checkPermission，因为获取单个密钥没有特别的权限要求 (或者根据你的业务逻辑调整)
-    const targetClientId = data.clientId;
+
     try {
       const key = Keys.getClientKey(targetClientId);
       callback({ status: 'ok', key: key ?? null }); // 使用空值合并运算符
@@ -1276,6 +1275,72 @@ functionCallNsp.on('connection', async (socket) => {
     const clientId = socket.handshake.auth.clientId;
     const clientType = socket.handshake.auth.clientType;
     logger.info(`Client ${clientId}-${clientType} disconnected (functionCallNsp)`, { reason });// 使用 logger.info
+    cleanUpSocket(socket);
+  });
+});
+
+// /debug 命名空间
+const debugNsp = io.of(NAMESPACES.DEBUG);
+
+debugNsp.on('connection', async (socket) => {
+  const clientId = socket.handshake.auth.clientId;
+  const clientType = socket.handshake.auth.clientType;
+
+  logger.info('Client connecting to /debug', { clientId, clientType });
+
+  // 1. 身份验证
+  const authResult = await checkAuth(socket);
+  if (authResult !== true) {
+    logger.warn('Authentication failed for /debug', { clientId, clientType, reason: authResult.message });
+    socket.emit(MSG_TYPE.ERROR, { message: authResult.message });
+    socket.disconnect(true);
+    return;
+  }
+
+  // 2. 权限检查 (只允许 SillyTavern 和管理前端)
+  if (clientType !== 'SillyTavern' && clientType !== 'monitor') {
+    logger.warn('Unauthorized access to /debug', { clientId, clientType });
+    socket.emit(MSG_TYPE.ERROR, { message: 'Unauthorized' });
+    socket.disconnect(true);
+    return;
+  }
+
+  logger.info('Client connected to /debug namespace', { clientId });
+
+  // 3. 监听 toggleDebugMode 事件
+  socket.on(MSG_TYPE.TOGGLE_DEBUG_MODE, async (callback) => { // 使用常量
+    try {
+      serverSettings.debugMode = !serverSettings.debugMode; // 切换 debugMode 的值
+
+      if (serverSettings.debugMode) {
+        await addDebugClients(serverSettings, trustedSillyTaverns, trustedClients, connectedClients, clients);
+        logger.info('Debug mode enabled.');
+      } else {
+        await removeDebugClients(serverSettings, trustedSillyTaverns, trustedClients, connectedClients, clients);
+        logger.info('Debug mode disabled.');
+      }
+
+      // 通知客户端（所有连接到 /debug 命名空间的客户端）
+      debugNsp.emit(MSG_TYPE.DEBUG_MODE_CHANGED, serverSettings.debugMode); // 使用常量
+
+      if (callback) callback({ status: 'ok', debugMode: serverSettings.debugMode });
+    } catch (error) {
+      logger.error('Error toggling debug mode:', error);
+      if (callback) callback({ status: 'error', message: error.message });
+    }
+  });
+  // 监听客户端断开连接
+  socket.on('disconnect', (reason) => {
+    logger.info(`Client disconnected from ${NAMESPACES.DEBUG} namespace`, {
+      clientId,
+      reason,
+    });
+    cleanUpSocket(socket);
+  });
+
+  // 监听客户端主动断开连接
+  socket.on(MSG_TYPE.CLIENT_DISCONNETED, () => {
+    logger.info(`Client ${clientId} disconnected (client-side) from /debug`);
     cleanUpSocket(socket);
   });
 });

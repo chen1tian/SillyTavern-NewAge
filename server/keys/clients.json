@@ -1,6 +1,6 @@
 {
   "SillyTavern-8000": {
-    "key": "$2b$10$uXmvzya6kgONN/Xp4dWdiuh/PtBQmHKLHiL9Fpxy.kQewPX3mgHK6",
+    "key": "$2b$10$9HS.0q4f2e.68TOW7CeGzuc9i5hp1lQalNtJCXxC4/jFUnJCTYfMK",
     "rooms": []
   },
   "DC_BOT": {
@@ -8,11 +8,11 @@
     "rooms": []
   },
   "monitor": {
-    "key": "$2b$10$JwKjNoZ7szTgx59p0AIGWuLGYQI.e1zrfLi3zFTbjTQHeFc/vb7Gq",
+    "key": "$2b$10$YxmbGvFd8NieQ8MJTAozr.lrSEPdkEieVPSy1N.s0uD2UrMapb.TK",
     "rooms": []
   },
   "frontendExample": {
-    "key": "$2b$10$rJ8vhaNAXTaunX5eiywWjOPoBlc/ly8tX2NlEwU9r1dOA0fKGrHoe",
+    "key": "$2b$10$hijIM9vJdy9pSD8Xedke4OEmLzaVPJe3BdhP0DwtkMUhunbZcToKK",
     "rooms": []
   }
 }
