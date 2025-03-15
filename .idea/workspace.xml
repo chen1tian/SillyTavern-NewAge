@@ -4,17 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="d1d6f788-9b1c-478d-a7ae-0df505bf5ca6" name="更改" comment="2025.3.10-项目网站">
-      <change beforePath="$PROJECT_DIR$/dist/NewAge/chat.js" beforeDir="false" afterPath="$PROJECT_DIR$/dist/NewAge/chat.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/index_NewAge.html" beforeDir="false" afterPath="$PROJECT_DIR$/index_NewAge.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/index_NewAge.js" beforeDir="false" afterPath="$PROJECT_DIR$/index_NewAge.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/lib/constants.js" beforeDir="false" afterPath="$PROJECT_DIR$/lib/constants.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/dist/Keys.js" beforeDir="false" afterPath="$PROJECT_DIR$/server/dist/Keys.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/dist/Rooms.js" beforeDir="false" afterPath="$PROJECT_DIR$/server/dist/Rooms.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/dist/function_call.js" beforeDir="false" afterPath="$PROJECT_DIR$/server/dist/function_call.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/keys/clients.json" beforeDir="false" afterPath="$PROJECT_DIR$/server/keys/clients.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/server.js" beforeDir="false" afterPath="$PROJECT_DIR$/server/server.js" afterDir="false" />
-    </list>
+    <list default="true" id="d1d6f788-9b1c-478d-a7ae-0df505bf5ca6" name="更改" comment="2025.3.10-日志管理" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -306,7 +296,15 @@
       <option name="project" value="LOCAL" />
       <updated>1741616904818</updated>
     </task>
-    <option name="localTasksCounter" value="30" />
+    <task id="LOCAL-00030" summary="2025.3.10-日志管理">
+      <option name="closed" value="true" />
+      <created>1741971652089</created>
+      <option name="number" value="00030" />
+      <option name="presentableId" value="LOCAL-00030" />
+      <option name="project" value="LOCAL" />
+      <updated>1741971652089</updated>
+    </task>
+    <option name="localTasksCounter" value="31" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -342,6 +340,7 @@
     <MESSAGE value="2025.3.03-插件界面，登陆机制暂停使用" />
     <MESSAGE value="2025.3.05-监控页面重构" />
     <MESSAGE value="2025.3.10-项目网站" />
-    <option name="LAST_COMMIT_MESSAGE" value="2025.3.10-项目网站" />
+    <MESSAGE value="2025.3.10-日志管理" />
+    <option name="LAST_COMMIT_MESSAGE" value="2025.3.10-日志管理" />
   </component>
 </project>
