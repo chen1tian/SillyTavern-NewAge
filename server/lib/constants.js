@@ -44,6 +44,8 @@ const MSG_TYPE = {
   //debug 命名空间
   TOGGLE_DEBUG_MODE: 'TOGGLE_DEBUG_MODE',
   DEBUG_MODE_CHANGED: 'DEBUG_MODE_CHANGED',
+  SERVER_STATUS: 'SERVER_STATUS',
+  READ_LOG: 'READ_LOG',
 
   // 流式消息类型 (SillyTavern扩展端和服务器之间的流式传输)
   NON_STREAM: 0,

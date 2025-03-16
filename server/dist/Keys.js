@@ -24,7 +24,7 @@ async function loadClientKeys() {
   } catch (error) {
     logger.warn('No client keys file found or error loading keys.', error);
     // 抛出错误而不是继续使用空对象
-    throw new Error('Failed to load client keys');
+    //throw new Error('Failed to load client keys');
   }
 }
 

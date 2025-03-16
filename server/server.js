@@ -12,6 +12,7 @@ import * as fss from 'fs/promises';
 import bcrypt from 'bcryptjs';
 import pkg from 'lodash';
 const { merge, isString, startsWith, has, forEach } = pkg;
+import dayjs from 'dayjs';
 //import * as functionCall from './dist/function_call.js';
 
 import { readJsonFromFile, saveJsonToFile, addStaticResources } from './dist/function_call.js';
@@ -1329,6 +1330,46 @@ debugNsp.on('connection', async (socket) => {
       if (callback) callback({ status: 'error', message: error.message });
     }
   });
+
+  socket.on(MSG_TYPE.SERVER_STATUS, async (callback) => {
+    try {
+      if (serverStatus) {
+        logger.info('Checking Server status.');
+        if (callback) callback({ status: 'ok', serverStatus: serverStatus });
+      }
+    } catch (error) {
+      logger.error('Error about Server status:', error);
+      if (callback) callback({
+        status: 'error', message: error.message
+      })
+    }
+  });
+
+  socket.on(MSG_TYPE.READ_LOG, async (options, callback) => {
+    try {
+      const { filename, level, page, pageSize } = options;
+      // 验证参数
+      if (!filename || !['combined.log', 'error.log', 'info.log', 'warn.log'].includes(filename)) {
+        throw new Error('Invalid filename');
+      }
+
+      const levelOptions = ['all', 'error', 'warn', 'info'];
+      if (!levelOptions.includes(level)) {
+        throw new Error("Invalid level Options")
+      }
+
+      const pageNumber = parseInt(page, 10) || 1;
+      const pageSizeNumber = parseInt(pageSize, 10) || 10;
+
+      const logData = await readLogFile(filename, level, page, pageSize);
+      socket.emit(MSG_TYPE.READ_LOG + '_RESPONSE', { success: true, ...logData }); // 发送一个带 _RESPONSE 后缀的事件
+
+    } catch (error) {
+      logger.error('Error reading log file:', error);
+      socket.emit(MSG_TYPE.READ_LOG + '_RESPONSE', { success: false, message: error.message }); // 发送错误信息
+    }
+  });
+
   // 监听客户端断开连接
   socket.on('disconnect', (reason) => {
     logger.info(`Client disconnected from ${NAMESPACES.DEBUG} namespace`, {
@@ -1344,6 +1385,43 @@ debugNsp.on('connection', async (socket) => {
     cleanUpSocket(socket);
   });
 });
+
+function readLogFile(filename, level, page, pageSize) {
+  return new Promise((resolve, reject) => {
+    const logFilePath = path.join(__dirname, 'logs', filename); //日志文件路径
+
+    fs.readFile(logFilePath, 'utf8', (err, data) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+
+      let lines = data.trim().split('\n');
+
+      // 根据 level 过滤
+      if (level && level !== 'all') {
+        lines = lines.filter(line => {
+          const parts = line.split(' - ');
+          return parts.length > 1 && parts[1].trim() === level;
+        });
+      }
+      const total = lines.length;
+
+      // 分页
+      const start = (page - 1) * pageSize;
+      const end = start + pageSize;
+      const paginatedLines = lines.slice(start, end);
+
+      resolve({
+        lines: paginatedLines,
+        total,
+        page,
+        pageSize,
+        level
+      });
+    });
+  });
+}
 
 // 初始静态资源映射 (URL 路径 -> 相对于 server.js 的文件系统路径)
 const initialResources = {
@@ -1404,9 +1482,19 @@ app.use((req, res) => {
   res.status(404).send('Not Found');
 });
 
+let serverStatus = {};
+
 initializeStaticResources().then(() => {
   const SERVER_PORT = serverSettings.serverPort || 4000;
   httpServer.listen(SERVER_PORT, () => {
+
+    // 服务器状态写入
+    serverStatus.serverPort = serverSettings.serverPort;
+    serverStatus.serverAddress = serverSettings.serverAddress;
+    serverStatus.networkSafe = serverSettings.networkSafe;
+    serverStatus.debugMode = serverSettings.debugMode;
+    serverStatus.startTime = dayjs().format('YYYY-MM-DD HH:mm:ss');
+
     console.log(`Server listening on port ${SERVER_PORT}`);
     console.log(`Server monitor: http://localhost:${SERVER_PORT}`);
   });
