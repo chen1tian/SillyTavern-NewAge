@@ -2,6 +2,9 @@
 
 [![Status](https://img.shields.io/badge/status-alpha-orange.svg)](https://shields.io/)
 
+![Discord](https://img.shields.io/discord/1349304564645498930?style=flat&logo=discord&logoColor=%235865F2&logoSize=auto&label=Discord&cacheSeconds=3600&link=https%3A%2F%2Fdiscord.gg%2Fvpw8hgF8CR)
+
+
 ## 目录
 
 - [SillyTavern-NewAge: 基于 Socket.IO 的双向通信扩展](#sillytavern-newage-基于-socketio-的双向通信扩展)

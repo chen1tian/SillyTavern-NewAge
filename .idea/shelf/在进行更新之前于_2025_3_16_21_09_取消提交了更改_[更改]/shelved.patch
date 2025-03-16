@@ -1,0 +1,31 @@
+Index: server/keys/clients.json
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>{\r\n  \"SillyTavern-8000\": {\r\n    \"key\": \"$2b$10$9HS.0q4f2e.68TOW7CeGzuc9i5hp1lQalNtJCXxC4/jFUnJCTYfMK\",\r\n    \"rooms\": []\r\n  },\r\n  \"DC_BOT\": {\r\n    \"key\": \"$2b$10$dfvpG7YOB1702dXFr1tlwut152btL8A3HZGY8HF/YZ0EivFFbO/Qi\",\r\n    \"rooms\": []\r\n  },\r\n  \"monitor\": {\r\n    \"key\": \"$2b$10$YxmbGvFd8NieQ8MJTAozr.lrSEPdkEieVPSy1N.s0uD2UrMapb.TK\",\r\n    \"rooms\": []\r\n  },\r\n  \"frontendExample\": {\r\n    \"key\": \"$2b$10$hijIM9vJdy9pSD8Xedke4OEmLzaVPJe3BdhP0DwtkMUhunbZcToKK\",\r\n    \"rooms\": []\r\n  }\r\n}
+===================================================================
+diff --git a/server/keys/clients.json b/server/keys/clients.json
+--- a/server/keys/clients.json	(revision 5364e85f8637689d53915336cc88b82c8ce9120f)
++++ b/server/keys/clients.json	(date 1742099917436)
+@@ -1,6 +1,6 @@
+ {
+   "SillyTavern-8000": {
+-    "key": "$2b$10$9HS.0q4f2e.68TOW7CeGzuc9i5hp1lQalNtJCXxC4/jFUnJCTYfMK",
++    "key": "$2b$10$ckZkTTCwcfEt6VG1a6EHFuI8U1PKpW4dHRn78YUIcPaTivULWLid.",
+     "rooms": []
+   },
+   "DC_BOT": {
+@@ -8,11 +8,11 @@
+     "rooms": []
+   },
+   "monitor": {
+-    "key": "$2b$10$YxmbGvFd8NieQ8MJTAozr.lrSEPdkEieVPSy1N.s0uD2UrMapb.TK",
++    "key": "$2b$10$zQdn2TYvwv0WHUmh.b.p0OVnvcX2/XmWQemAYBNoC4NWwe34F9VBa",
+     "rooms": []
+   },
+   "frontendExample": {
+-    "key": "$2b$10$hijIM9vJdy9pSD8Xedke4OEmLzaVPJe3BdhP0DwtkMUhunbZcToKK",
++    "key": "$2b$10$p9DTP60z84fXbvIjHzuYy.85NhD1iM6uax9N.FrQ7l55ozsEqfiOS",
+     "rooms": []
+   }
+ }
+\ No newline at end of file
