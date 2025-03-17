@@ -1,7 +1,9 @@
+// server/dist/logger.js
+
 import path from 'path';
 const { resolve, dirname, join } = path;
 import winston from 'winston';
-const { combine, timestamp, errors, printf, colorize, simple } = winston.format;
+const { combine, timestamp, errors, printf, colorize, json } = winston.format;
 import { fileURLToPath } from 'url';
 import * as fs from 'fs';
 
@@ -25,17 +27,30 @@ logFiles.forEach(file => {
   }
 });
 
-// 4. 自定义日志格式：日期 - 等级 - message
-const myFormat = printf(({ level, message, timestamp }) => {
-  return `${timestamp} - ${level} - ${message}`;
+// 4. 自定义日志格式 (改进版)
+const myFormat = printf(({ level, message, timestamp, service, code, ...meta }) => {
+  let logMessage = `${timestamp} [${level}] [${service}]`;
+
+  if (code !== undefined) {
+    logMessage += ` [${code}]`; // 添加错误码/警告码
+  }
+
+  logMessage += `: ${message}`;
+
+  // 如果有其他元数据，则将其转换为 JSON 字符串并附加到消息中
+  if (Object.keys(meta).length > 0) {
+    logMessage += `\n${JSON.stringify(meta, null, 2)}`; // 使用缩进格式化 JSON
+  }
+
+  return logMessage;
 });
 
 const logger = winston.createLogger({
   level: 'info', // 设置最低记录级别为 info
   format: combine(
     timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
-    errors({ stack: true }),
-    myFormat // 使用自定义格式
+    errors({ stack: true }), // 包含错误堆栈信息
+    myFormat, // 使用自定义格式
   ),
   defaultMeta: { service: 'llm-server' },
   transports: [
@@ -47,14 +62,50 @@ const logger = winston.createLogger({
   ],
 });
 
-// 6. 开发环境下添加控制台输出
+// 6. 开发环境下添加控制台输出 (改进版)
 if (process.env.NODE_ENV !== 'production') {
   logger.add(new winston.transports.Console({
     format: combine(
-      colorize(),
-      simple() // 使用 simple() 格式，保留颜色并简化输出
-    )
+      colorize(), // 添加颜色
+      timestamp({ format: 'HH:mm:ss' }), // 简化时间戳格式
+      printf(({ level, message, timestamp, service, code, ...meta }) => {
+        let logMessage = `${timestamp} [${level}] [${service}]`;
+
+        if (code !== undefined) {
+          logMessage += ` [${code}]`; // 添加错误码/警告码
+        }
+        logMessage += `: ${message}`;
+
+        // 如果有其他元数据，则将其转换为 JSON 字符串并附加到消息中
+        if (Object.keys(meta).length > 0) {
+          const metaString = Object.entries(meta)
+            .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
+            .join(', ');
+          logMessage += `\n\t${metaString}`; // 使用简洁的格式化
+        }
+
+        return logMessage;
+      }),
+    ),
   }));
 }
 
-export { logger };
+// 7. 添加带有可选错误码/警告码的日志记录函数
+/**
+ * 记录日志消息。
+ * @param {string} level - 日志级别 ('error', 'warn', 'info', 'debug', etc.)
+ * @param {string} message - 日志消息
+ * @param {object} [meta] - 可选的元数据对象
+ * @param {string|number} [code] - 可选的错误码/警告码
+ */
+function log(level, message, meta = {}, code) {
+  logger.log({ level, message, code, ...meta });
+}
+
+// 8. 导出方便的函数 (可选)
+const error = (message, meta = {}, code) => log('error', message, meta, code);
+const warn = (message, meta = {}, code) => log('warn', message, meta, code);
+const info = (message, meta = {}, code) => log('info', message, meta, code);
+const debug = (message, meta = {}, code) => log('debug', message, meta, code);
+
+export { logger, log, error, warn, info, debug };
