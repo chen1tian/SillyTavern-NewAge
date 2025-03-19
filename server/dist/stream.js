@@ -1,8 +1,8 @@
 // lib/stream.js
-import { MSG_TYPE, STREAM_EVENTS } from './constants.js';
-import { uuidv4 } from './uuid/uuid.js';
+import { MSG_TYPE, STREAM_EVENTS } from '../lib/constants.js';
+import { uuidv4 } from '../lib/uuid/uuid.js';
 import ss from '../server/node_modules/@sap_oss/node-socketio-stream/index.js';
-import { logger, error, warn, info } from '../dist/logger.js'; // 导入 logger
+import { logger, error, warn, info } from './logger.js'; // 导入 logger
 
 /**
  * 设置服务器端流式处理程序，SillyTavern -> 服务器 / Sets up server-side stream handlers,SillyTavern -> server.

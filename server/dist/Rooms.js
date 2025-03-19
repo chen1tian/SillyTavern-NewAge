@@ -1,39 +1,42 @@
 // server/dist/Rooms.js
-import { NAMESPACES } from '../../lib/constants.js'; 
+import { NAMESPACES } from '../../lib/constants.js';
 import { io } from '../server.js'; // 从 server.js 导入 io 对象
 
-import { logger } from './logger.js';
+import { logger, error } from './logger.js'; // 导入 logger
 
 // 添加客户端到房间
 function addClientToRoom(clientId, roomName) {
   try {
     io.of(NAMESPACES.ROOMS).adapter.rooms.get(roomName)?.add(clientId); // 使用可选链
     logger.info(`Client ${clientId} added to room ${roomName}`);
-  } catch (error) {
-    logger.error(`Error adding client ${clientId} to room ${roomName}:`, error);
-    throw new Error(`Failed to add client ${clientId} to room ${roomName}: ${error.message}`);
+  } catch (err) {
+    error(`Error adding client ${clientId} to room ${roomName}:`, { error: err }, 'ROOM_ERROR'); // 使用新的 logger
   }
 }
 
-// 创建房间
-function createRoom(roomName) {
+// 创建房间 (修改: 接受 creatorClientId 参数, 自动设置创建者)
+function createRoom(roomName, creatorClientId) {
   try {
     if (io.of(NAMESPACES.ROOMS).adapter.rooms.has(roomName)) {
-      throw new Error(`Room ${roomName} already exists`);
+      // 这里可以改成警告
+      logger.warn(`Room ${roomName} already exists`, {}, 'ROOM_WARNING');
+      throw new Error(`Room ${roomName} already exists`)
     }
     // Socket.IO 会自动创建房间，无需手动操作
-    logger.info(`Room ${roomName} created`);
-  } catch (error) {
-    logger.error(`Error creating room ${roomName}:`, error);
-    throw new Error(`Failed to create room ${roomName}: ${error.message}`);
+    logger.info(`Room ${roomName} created by ${creatorClientId}`);
+  } catch (err) {
+    error(`Error creating room ${roomName}:`, { error: err }, 'ROOM_ERROR');
+    throw new Error(`Failed to create: ${err.message}`);
   }
 }
 
-// 删除房间
+// 删除房间 (修改: 触发 ROOM_DELETED 事件)
 function deleteRoom(roomName) {
   try {
     const room = io.of(NAMESPACES.ROOMS).adapter.rooms.get(roomName);
     if (!room) {
+      // 这里可以改成警告
+      logger.warn(`Room ${roomName} does not exist`, {}, 'ROOM_WARNING');
       throw new Error(`Room ${roomName} does not exist`);
     }
 
@@ -44,9 +47,10 @@ function deleteRoom(roomName) {
 
     // Socket.IO 会自动删除空的房间，无需手动操作
     logger.info(`Room ${roomName} deleted`);
-  } catch (error) {
-    logger.error(`Error deleting room ${roomName}:`, error);
-    throw new Error(`Failed to delete room ${roomName}: ${error.message}`);
+    //io.of(NAMESPACES.ROOMS).emit('ROOM_DELETED', { roomName }); // 触发事件 (由 ChatModule 处理)
+  } catch (err) {
+    error(`Error deleting room ${roomName}:`, { error: err }, 'ROOM_ERROR');
+    throw new Error(`Failed to delete room ${roomName}: ${err.message}`);
   }
 }
 
@@ -54,9 +58,9 @@ function deleteRoom(roomName) {
 function getAllRooms() {
   try {
     return Array.from(io.of(NAMESPACES.ROOMS).adapter.rooms.keys());
-  } catch (error) {
-    logger.error('Error getting all rooms:', error);
-    throw new Error(`Failed to get all rooms: ${error.message}`);
+  } catch (err) {
+    error('Error getting all rooms:', { error: err }, 'ROOM_ERROR');
+    throw new Error('Failed to get all rooms');
   }
 }
 
@@ -71,9 +75,9 @@ function getClientRooms(clientId) {
       }
     }
     return clientRooms;
-  } catch (error) {
-    logger.error(`Error getting rooms for client ${clientId}:`, error);
-    throw new Error(`Failed to get rooms for client ${clientId}: ${error.message}`);
+  } catch (err) {
+    error(`Error getting rooms for client ${clientId}:`, { error: err }, 'ROOM_ERROR');
+    throw new Error(`Failed to get rooms for client ${clientId}`);
   }
 }
 
@@ -82,9 +86,9 @@ function isClientInRoom(clientId, roomName) {
   try {
     const room = io.of(NAMESPACES.ROOMS).adapter.rooms.get(roomName);
     return room ? room.has(clientId) : false;
-  } catch (error) {
-    logger.error(`Error checking if client ${clientId} is in room ${roomName}:`, error);
-    throw new Error(`Failed to check if client ${clientId} is in room ${roomName}: ${error.message}`);
+  } catch (err) {
+    error(`Error checking if client ${clientId} is in room ${roomName}:`, { error: err }, 'ROOM_ERROR');
+    throw new Error(`Failed to check if client ${clientId} is in room ${roomName}`);
   }
 }
 
@@ -93,9 +97,9 @@ function removeClientFromRoom(clientId, roomName) {
   try {
     io.of(NAMESPACES.ROOMS).adapter.rooms.get(roomName)?.delete(clientId); // 使用可选链
     logger.info(`Client ${clientId} removed from room ${roomName}`);
-  } catch (error) {
-    logger.error(`Error removing client ${clientId} from room ${roomName}:`, error);
-    throw new Error(`Failed to remove client ${clientId} from room ${roomName}: ${error.message}`);
+  } catch (err) {
+    error(`Error removing client ${clientId} from room ${roomName}:`, { error: err }, 'ROOM_ERROR');
+    throw new Error(`Failed to remove client ${clientId} from room ${roomName}`);
   }
 }
 
