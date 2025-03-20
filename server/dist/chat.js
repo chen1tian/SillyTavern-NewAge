@@ -60,16 +60,18 @@ class ChatModule {
     this.memberManagement = new MemberManagement(io, this);
 
     // 10. 创建 RelationsManage 实例
-    this.relationsManage = new RelationsManage(io); 
+    this.relationsManage = new RelationsManage(io);
   }
 
   /**
-    * 创建房间。
-    * @param {string} roomName - 房间名。
-    * @param {string} creatorClientId - 创建者客户端 ID。
-    * @returns {boolean} - 是否成功创建。
-    */
+   * 创建房间。
+   * @param {string} roomName - 房间名。
+   * @param {string} creatorClientId - 创建者客户端 ID。
+   * @returns {boolean} - 是否成功创建。
+   */
   createRoom(roomName, creatorClientId) {
+    // 使用 creatorClientId 作为 roomName
+    roomName = creatorClientId; // 修改这里，使用 creatorClientId 作为房间名
     if (this.rooms[roomName]) {
       // 房间已存在
       return false;
@@ -90,7 +92,7 @@ class ChatModule {
       members: new Set([creatorClientId]), // 初始成员：创建者
       master: creatorClientId, // 房主是创建者
       managers: new Set(),
-      guests: new Set([creatorClientId]),//一开始都是访客
+      guests: new Set([creatorClientId]), //一开始都是访客
       messageQueue: [],
       createdAt: new Date(),
     };
@@ -230,7 +232,7 @@ class ChatModule {
     if (role === 'master') {
       room.master = clientId;
     } else if (role === 'manager') {
-      room.managers.add(clientId)
+      room.managers.add(clientId);
     } else {
       room.guests.add(clientId);
     }
@@ -239,12 +241,12 @@ class ChatModule {
   }
 
   /**
-     * 添加消息到房间的消息队列。
-     * @param {string} roomName - 房间名。
-     * @param {object} message - 消息对象。
-     * @param {boolean} fromLlm -是否是LLM响应
-     * @returns {string | null} - 消息 ID (如果成功) 或 null (如果失败)。
-     */
+   * 添加消息到房间的消息队列。
+   * @param {string} roomName - 房间名。
+   * @param {object} message - 消息对象。
+   * @param {boolean} fromLlm -是否是LLM响应
+   * @returns {string | null} - 消息 ID (如果成功) 或 null (如果失败)。
+   */
   addMessage(roomName, message, fromLlm) {
     if (!this.rooms[roomName]) {
       return null; // 房间不存在
@@ -286,7 +288,7 @@ class ChatModule {
     if (fromLlm) {
       const responseQueue = this.llmResponseQueues[roomName];
       if (!responseQueue) {
-        return false
+        return false;
       }
       const messageIndex = responseQueue.findIndex(msg => msg.messageId === messageId);
       if (messageIndex === -1) {
@@ -322,7 +324,7 @@ class ChatModule {
     if (fromLlm) {
       const responseQueue = this.llmResponseQueues[roomName];
       if (!responseQueue) {
-        return false
+        return false;
       }
       const messageIndex = responseQueue.findIndex(msg => msg.messageId === messageId);
       if (messageIndex === -1) {
@@ -364,10 +366,10 @@ class ChatModule {
   }
 
   /**
-    * 设置消息请求模式。
-    * @param {string} mode - 消息请求模式 ('Default', 'Immediate', 'MasterOnly', 'Separate')。
-    * @returns {boolean} - 是否设置成功。
-    */
+   * 设置消息请求模式。
+   * @param {string} mode - 消息请求模式 ('Default', 'Immediate', 'MasterOnly', 'Separate')。
+   * @returns {boolean} - 是否设置成功。
+   */
   setMessageRequestMode(mode) {
     if (!['Default', 'Immediate', 'MasterOnly', 'Separate'].includes(mode)) {
       console.warn('Invalid message request mode:', mode);
@@ -380,10 +382,10 @@ class ChatModule {
   }
 
   /**
-     * 处理 LLM 请求。
-     * @param {import('socket.io').Socket} socket - Socket.IO Socket 实例。
-     * @param {object} data - 消息数据。
-     */
+   * 处理 LLM 请求。
+   * @param {import('socket.io').Socket} socket - Socket.IO Socket 实例。
+   * @param {object} data - 消息数据。
+   */
   handleLlmRequest(socket, data) {
     const clientId = socket.handshake.auth.clientId;
     const roomName = clientId; // 假设房间名与 clientId 相同
@@ -470,10 +472,10 @@ class ChatModule {
   }
 
   /**
-     * 处理 LLM 响应。
-     * @param {string} roomName - 房间名
-     * @param {object} data - 响应数据。
-     */
+   * 处理 LLM 响应。
+   * @param {string} roomName - 房间名
+   * @param {object} data - 响应数据。
+   */
   handleLlmResponse(roomName, data) {
     const { requestId } = data;
 
@@ -493,11 +495,11 @@ class ChatModule {
   }
 
   /**
-    * 获取离线消息。
-    * @param {string} clientId - 客户端 ID。
-    * @param {string | null} lastMessageId - 最后接收到的消息 ID (如果为空，则获取所有消息)。
-    * @returns {object[] | null} - 离线消息数组 (如果未找到房间或消息，则返回 null)。
-    */
+   * 获取离线消息。
+   * @param {string} clientId - 客户端 ID。
+   * @param {string | null} lastMessageId - 最后接收到的消息 ID (如果为空，则获取所有消息)。
+   * @returns {object[] | null} - 离线消息数组 (如果未找到房间或消息，则返回 null)。
+   */
   getOfflineMessages(clientId, lastMessageId) {
     const roomName = clientId; // 假设房间名与 clientId 相同
     if (!this.rooms[roomName]) {
