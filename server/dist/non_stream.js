@@ -1,7 +1,7 @@
-// lib/non_stream.js
+// server/dist/non_stream.js
 
-import { MSG_TYPE } from './constants.js';
-import { uuidv4 } from './uuid/uuid.js';
+import { MSG_TYPE } from '../lib/constants.js';
+import { uuidv4 } from '../lib/uuid/uuid.js';
 
 /**
  * 发送非流式消息 / Sends a non-stream message.

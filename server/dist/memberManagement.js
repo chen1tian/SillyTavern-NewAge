@@ -1,5 +1,5 @@
-// lib/memberManagement.js
-import { NAMESPACES, MSG_TYPE } from './constants.js';
+// server/dist/memberManagement.js
+import { NAMESPACES, MSG_TYPE } from '../lib/constants.js';
 import { logger, error, warn, info } from '../dist/logger.js'; // 导入 logger
 
 class MemberManagement {
@@ -10,11 +10,11 @@ class MemberManagement {
   }
 
   /**
-   * 添加成员 (在客户端连接时调用)。
-   * @param {string} clientId - 客户端 ID。
-   * @param {string} clientType - 客户端类型。
-   * @param {object} [memberData={}] - 成员数据 (可选, 例如昵称、头像等)。
-   */
+    * 添加成员 (在客户端连接时调用)。
+    * @param {string} clientId - 客户端 ID。
+    * @param {string} clientType - 客户端类型。
+    * @param {object} [memberData={}] - 成员数据 (可选, 例如昵称、头像等)。
+    */
   addMember(clientId, clientType, memberData = {}) {
     if (this.members[clientId]) {
       warn(`Member with clientId ${clientId} already exists. Overwriting.`, {}, 'MEMBER_WARNING');
@@ -23,6 +23,9 @@ class MemberManagement {
     this.members[clientId] = {
       clientId: clientId,
       clientType: clientType,
+      desc: memberData.desc ?? null,     
+      html: memberData.html ?? null,     
+      key: memberData.key ?? null,       
       ...memberData, // 合并成员数据
     };
     info(`Add member ${clientId} successfully.`);

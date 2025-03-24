@@ -1,5 +1,5 @@
-// lib/relationsManage.js
-import { NAMESPACES, MSG_TYPE } from './constants.js';
+// server/dist/relationsManage.js
+import { NAMESPACES, MSG_TYPE } from '../lib/constants.js';
 import { logger, error, warn, info } from '../dist/logger.js'; // 导入 logger
 
 class RelationsManage {
@@ -42,19 +42,33 @@ class RelationsManage {
    * 手动分配扩展端给客户端房间。
    * @param {string} clientRoom - 客户端房间名。
    * @param {string[]} extensions - 要分配的扩展端 clientId 数组。
-   * @returns {boolean} - 是否分配成功。
+   * @returns {object} -  { success: boolean, error?: string }
    */
   assignExtensionToClient(clientRoom, extensions) {
     if (this.connectionPolicy !== 'Manual') {
       warn('Manual assignment is only allowed in Manual mode', { clientRoom, extensions }, 'ASSIGN_EXTENSION_TO_CLIENT');
-      return false;
+      return { success: false, error: 'Manual assignment is only allowed in Manual mode' };
     }
-    //这里可以添加检查房间和扩展端是否都存在的逻辑
+
+    // 检查房间是否存在
+    if (!this.connectedClientRooms.includes(clientRoom)) {
+      warn('Client room not found', { clientRoom }, 'ASSIGN_EXTENSION_TO_CLIENT');
+      return { success: false, error: 'Client room not found' };
+    }
+
+    // 检查所有扩展是否存在
+    for (const extensionId of extensions) {
+      if (!this.connectedExtensions.includes(extensionId)) {
+        warn('Extension not found', { extensionId }, 'ASSIGN_EXTENSION_TO_CLIENT');
+        return { success: false, error: `Extension not found: ${extensionId}` };
+      }
+    }
+
     this.manualAssignments[clientRoom] = extensions;
     this.updateAssignments();
     this.broadcastAvailableExtensions();
     info('Extension assigned to client', { clientRoom, extensions }, 'ASSIGN_EXTENSION_TO_CLIENT');
-    return true;
+    return { success: true };
   }
 
   /**
@@ -79,7 +93,7 @@ class RelationsManage {
    */
   updateAssignments() {
     this.assignments = {}; // 清空旧的分配
-
+    info('Updating assignments based on policy:', this.connectionPolicy);
     if (this.connectionPolicy === 'Free') {
       // 所有客户端都可以访问所有已连接的 SillyTavern 扩展端
       for (const clientRoom of this.connectedClientRooms) {
@@ -91,11 +105,13 @@ class RelationsManage {
     } else if (this.connectionPolicy === 'Balanced') {
       // 均衡分配 (简化版示例)
       let extensionIndex = 0;
-      for (const clientRoom of this.connectedClientRooms) {
-        this.assignments[clientRoom] = [];
-        if (this.connectedExtensions.length > 0) {
-          this.assignments[clientRoom].push(this.connectedExtensions[extensionIndex]);
-          extensionIndex = (extensionIndex + 1) % this.connectedExtensions.length;
+      if (this.connectedExtensions.length > 0) { // 检查是否为空
+        for (const clientRoom of this.connectedClientRooms) {
+          this.assignments[clientRoom] = [];
+          if (this.connectedExtensions.length > 0) {
+            this.assignments[clientRoom].push(this.connectedExtensions[extensionIndex]);
+            extensionIndex = (extensionIndex + 1) % this.connectedExtensions.length;
+          }
         }
       }
     } else if (this.connectionPolicy === 'Broadcast') {
@@ -105,14 +121,18 @@ class RelationsManage {
       }
     } else if (this.connectionPolicy === 'Random') {
       // 随机分配 (简化版示例)
-      for (const clientRoom of this.connectedClientRooms) {
-        this.assignments[clientRoom] = [];
-        if (this.connectedExtensions.length > 0) {
-          const randomIndex = Math.floor(Math.random() * this.connectedExtensions.length);
-          this.assignments[clientRoom].push(this.connectedExtensions[randomIndex]);
+
+      if (this.connectedExtensions.length > 0) { // 检查是否为空
+        for (const clientRoom of this.connectedClientRooms) {
+          this.assignments[clientRoom] = [];
+          if (this.connectedExtensions.length > 0) {
+            const randomIndex = Math.floor(Math.random() * this.connectedExtensions.length);
+            this.assignments[clientRoom].push(this.connectedExtensions[randomIndex]);
+          }
         }
       }
     }
+    info('Assignments updated:', this.assignments); // 记录详细的分配结果
   }
 
   /**
@@ -138,12 +158,12 @@ class RelationsManage {
   }
 
   /**
-   * 移除已断开连接的扩展端。
-   * @param {string} extensionId - 扩展端 clientId。
-   */
+    * 移除已断开连接的扩展端。
+    * @param {string} extensionId - 扩展端 clientId。
+    */
   removeConnectedExtension(extensionId) {
     const index = this.connectedExtensions.indexOf(extensionId);
-    if (index !== -1) {
+    if (index > -1) { // 更明确的检查
       this.connectedExtensions.splice(index, 1);
       this.updateAssignments(); // 重新计算
       this.broadcastAvailableExtensions();
@@ -170,7 +190,7 @@ class RelationsManage {
    */
   removeClientRooms(clientRoom) {
     const index = this.connectedClientRooms.indexOf(clientRoom);
-    if (index !== -1) {
+    if (index > -1) { //更明确的检查
       this.connectedClientRooms.splice(index, 1);
       this.updateAssignments(); // 重新计算
       this.broadcastAvailableExtensions();

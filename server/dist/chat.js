@@ -1,4 +1,4 @@
-// lib/chat.js
+// server/dist/chat.js
 
 import { NAMESPACES, MSG_TYPE } from '../lib/constants.js'; // 导入常数
 import * as Rooms from './Rooms.js'; //导入Rooms.js
@@ -160,8 +160,12 @@ class ChatModule {
     // 通知房间内的 master 和 managers
     this.memberManagement.notifyRoomMasterAndManagers(roomName, MSG_TYPE.MEMBER_JOINED, { clientId, role });
 
-    // TODO: 触发 MEMBER_JOINED 事件
-    // this.emitEvent('MEMBER_JOINED', roomName, { clientId, role });
+    // 通知新加入的成员
+    this.io.to(clientId).emit(MSG_TYPE.MEMBER_ROLE_CHANGED, {
+      clientId: clientId,
+      roomName: roomName,
+      role: role // 或者直接使用  role: this.rooms[roomName].guests.has(clientId) ? 'guest' : (this.rooms[roomName].managers.has(clientId) ? 'manager' : 'master')
+    });
 
     return true;
   }

@@ -16,12 +16,12 @@ import { readJsonFromFile, saveJsonToFile, addStaticResources } from './dist/fun
 // 导入模块
 import * as Rooms from './dist/Rooms.js';
 import * as Keys from './dist/Keys.js';
-import { logger } from './dist/logger.js';
+import { logger, log, error, warn, info, debug } from './dist/logger.js';
 import { addDebugClients, removeDebugClients } from './dist/debug.js';
 import { setupServerNonStreamHandlers } from './dist/non_stream.js';
 import { setupServerStreamHandlers, forwardStreamData } from './dist/stream.js';
 import { EVENTS, NAMESPACES, MSG_TYPE } from './lib/constants.js';
-import { ChatModule } from './lib/chat.js';
+import { ChatModule } from './dist/chat.js';
 import { uuidv4 } from './lib/uuid/uuid.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -39,8 +39,6 @@ app.use('/public', express.static(path.join(__dirname, './public')));
 const httpServer = createServer(app);
 const saltRounds = 10;
 
-const chatModule = new ChatModule(io);
-
 let io = new Server(httpServer, {
   cors: {
     origin: '*',
@@ -51,6 +49,8 @@ let io = new Server(httpServer, {
 });
 
 export { io };
+
+const chatModule = new ChatModule(io);
 
 let serverSettings = {
   serverPort: 4000,
@@ -254,51 +254,6 @@ async function handleFunctionCallRequest(socket, data, callback) {
 }
 
 /**
- * @description 处理 function_call 请求 / Handles a function_call request.
- * @function handleFunctionCallRequest
- * @async
- * @param {import('socket.io').Socket} socket - Socket.IO Socket 实例 / Socket.IO Socket instance.
- * @param {object} data - 请求数据 / Request data.
- * @param {string} data.requestId - 请求 ID / Request ID.
- * @param {string} data.functionName - 要调用的函数名称 / Name of the function to call.
- * @param {any[]} data.args - 函数参数 / Function arguments.
- * @param {Function} callback - 回调函数 / Callback function.
- * @returns {Promise<void>}
- */
-async function handleFunctionCallRequest(socket, data, callback) {
-  const { requestId, functionName, args, target } = data; // 添加 target
-
-  if (target === 'server') {
-    // 服务器端函数调用
-    const func = functionRegistry[functionName];
-    if (!func) {
-      console.warn(`Function "${functionName}" not found.`);
-      callback({
-        requestId,
-        success: false,
-        error: { message: `Function "${functionName}" not found.` },
-      });
-      return;
-    }
-
-    try {
-      const result = await func(...args);
-      callback({ requestId, success: true, result });
-    } catch (error) {
-      console.error(`Error calling function "${functionName}":`, error);
-      callback({
-        requestId,
-        success: false,
-        error: { message: error.message || 'An unknown error occurred.' },
-      });
-    }
-  } else {
-    // 转发给 SillyTavern 扩展
-    io.to(target).emit(MSG_TYPE.FUNCTION_CALL, data, callback);
-  }
-}
-
-/**
  * @description 验证客户端密钥 / Validates a client's key.
  * @function isValidKey
  * @async
@@ -347,6 +302,23 @@ async function checkAuth(socket, skipNetworkSafeCheck = serverSettings.networkSa
   }
 }
 
+function broadcastClientListUpdate() {
+  try {
+    const members = chatModule.memberManagement.getAllMembers();
+    const clientList = Object.values(members).map(member => ({
+      clientId: member.clientId,
+      clientType: member.clientType,
+      desc: member.desc,
+      html: member.html,
+      key: member.key,
+    }));
+
+    io.of(NAMESPACES.CLIENTS).emit(MSG_TYPE.UPDATE_CONNECTED_CLIENTS, { clients: clientList });
+  } catch (error) {
+    error('Error broadcasting client list update:', error); // 使用 error 级别
+  }
+}
+
 // 默认命名空间 (/)
 io.on('connection', async (socket) => {
   const clientType = socket.handshake.auth.clientType;
@@ -376,15 +348,18 @@ io.on('connection', async (socket) => {
     handleClientConnection('Monitor client connected');
     // 监控客户端现在也加入房间
     chatModule.joinRoom(clientId, 'monitor-room', 'manager');
+    info('Client connected to /clients namespace', { clientId, clientType });
   } else if (clientType === 'SillyTavern') {
     handleClientConnection(`Extension client connected: ${clientId}`);
     // 添加已连接的扩展端
     chatModule.relationsManage.addConnectedExtension(clientId);
+    info('Client connected to /clients namespace', { clientId, clientType });
   } else {
     // 普通客户端
     handleClientConnection(`Client connected: ${clientId}`);
     // 添加已连接的客户端房间
     chatModule.relationsManage.addClientRooms(clientId);
+    info('Client connected to /clients namespace', { clientId, clientType });
   }
 
   socket.on('disconnect', (reason) => {
@@ -440,6 +415,9 @@ authNsp.on('connection', async (socket) => {
 
   // 认证成功
   info('Client authenticated', { clientId, clientType });
+
+  // 身份验证成功后，广播客户端列表更新
+  broadcastClientListUpdate();
 
   setupSocketListenersOnAuthNsp(socket); // 设置监听器 (仅对已认证的客户端)
 });
@@ -506,6 +484,8 @@ function setupSocketListenersOnAuthNsp(socket) {
     cleanUpClient(clientId, clientType); // 清理客户端信息
   });
 }
+
+const clientsNsp = io.of(NAMESPACES.CLIENTS);
 
 // /clients 命名空间
 clientsNsp.on('connection', async (socket) => {
@@ -857,6 +837,156 @@ function setupSocketListenersOnRoomsNsp(socket) {
     }
   });
 
+  // 设置成员角色 (仅限管理前端)
+  socket.on(MSG_TYPE.SET_MEMBER_ROLE, (data, callback) => {
+    if (typeof callback !== 'function') {
+      warn('Callback is not a function', { clientId, event: MSG_TYPE.SET_MEMBER_ROLE });
+      return;
+    }
+    const permissionResult = checkPermission('monitor'); // 或者可以根据角色进行更细致的权限控制
+    if (permissionResult !== true) {
+      callback(permissionResult);
+      return;
+    }
+    const { targetClientId, roomName, role } = data;
+    if (!['master', 'manager', 'guest'].includes(role)) {
+      callback({ status: 'error', message: 'Invalid role' });
+      return;
+    }
+    try {
+      if (chatModule.memberManagement.setMemberRole(targetClientId, roomName, role)) {
+        callback({ status: 'ok' });
+        // 可选：通知房间内其他成员角色变更
+        chatModule.memberManagement.notifyRoomMasterAndManagers(roomName, MSG_TYPE.MEMBER_JOINED, { clientId: targetClientId, role }); // 再次使用 MEMBER_JOINED 通知，可以考虑定义新的事件类型
+      } else {
+        callback({ status: 'error', message: 'Failed to set member role' });
+      }
+    } catch (error) {
+      error('Error setting member role:', { error: error }, 'SET_MEMBER_ROLE');
+      callback({ status: 'error', message: error.message ?? 'Unknown error' });
+    }
+  });
+
+  // 踢出成员 (仅限管理前端)
+  socket.on(MSG_TYPE.KICK_MEMBER, (data, callback) => {
+    if (typeof callback !== 'function') {
+      warn('Callback is not a function', { clientId, event: MSG_TYPE.KICK_MEMBER });
+      return;
+    }
+    const permissionResult = checkPermission('monitor'); // 或者可以根据角色进行更细致的权限控制
+    if (permissionResult !== true) {
+      callback(permissionResult);
+      return;
+    }
+    const { targetClientId, roomName } = data;
+    try {
+      if (chatModule.memberManagement.kickMember(targetClientId, roomName)) {
+        callback({ status: 'ok' });
+        // 可选：通知房间内其他成员有成员被踢出
+        chatModule.memberManagement.notifyRoomMasterAndManagers(roomName, MSG_TYPE.MEMBER_LEFT, { clientId: targetClientId }); // 再次使用 MEMBER_LEFT 通知，可以考虑定义新的事件类型
+        // 通知被踢出的客户端
+        io.to(targetClientId).emit(MSG_TYPE.WARNING, { message: `You have been kicked from room ${roomName}.` }); // 可以考虑定义新的消息类型
+      } else {
+        callback({ status: 'error', message: 'Failed to kick member' });
+      }
+    } catch (error) {
+      error('Error kicking member:', { error: error }, 'KICK_MEMBER');
+      callback({ status: 'error', message: error.message ?? 'Unknown error' });
+    }
+  });
+
+  // 设置连接策略 (仅限管理前端)
+  socket.on(MSG_TYPE.SET_CONNECTION_POLICY, (data, callback) => {
+    if (typeof callback !== 'function') {
+      warn('Callback is not a function', { clientId, event: MSG_TYPE.SET_CONNECTION_POLICY });
+      return;
+    }
+
+    const permissionResult = checkPermission('monitor');
+    if (permissionResult !== true) {
+      callback(permissionResult);
+      return;
+    }
+
+    const { policy } = data;
+    const result = chatModule.relationsManage.setConnectionPolicy(policy);
+    if (result.success) {
+      callback({ status: 'ok' });
+    } else {
+      callback({ status: 'error', message: result.error ?? 'Failed to set connection policy' });
+    }
+  });
+
+  // 获取当前连接策略 (SillyTavern 和管理前端都可以访问)
+  socket.on(MSG_TYPE.GET_CONNECTION_POLICY, (callback) => {
+    if (typeof callback !== 'function') {
+      warn('Callback is not a function', { clientId, event: MSG_TYPE.GET_CONNECTION_POLICY });
+      return;
+    }
+
+    try {
+      const policy = chatModule.relationsManage.getConnectionPolicy();
+      callback({ status: 'ok', policy });
+    } catch (error) {
+      error('Error getting connection policy:', { error: error }, 'GET_CONNECTION_POLICY');
+      callback({ status: 'error', message: error.message ?? 'Unknown error' });
+    }
+  });
+
+  // 手动分配扩展给客户端 (仅限管理前端)
+  socket.on(MSG_TYPE.ASSIGN_EXTENSION_TO_CLIENT, (data, callback) => {
+    if (typeof callback !== 'function') {
+      warn('Callback is not a function', { clientId, event: MSG_TYPE.ASSIGN_EXTENSION_TO_CLIENT });
+      return;
+    }
+
+    const permissionResult = checkPermission('monitor');
+    if (permissionResult !== true) {
+      callback(permissionResult);
+      return;
+    }
+
+    const { clientRoom, extensions } = data;
+    const result = chatModule.relationsManage.assignExtensionToClient(clientRoom, extensions); // 返回 { success, error? }
+    if (result.success) {
+      callback({ status: 'ok' });
+    } else {
+      callback({ status: 'error', message: result.error ?? 'Failed to assign extension' });
+    }
+  });
+
+  // 获取所有分配 (SillyTavern 和管理前端都可以访问)
+  socket.on(MSG_TYPE.GET_ASSIGNMENTS, (callback) => {
+    if (typeof callback !== 'function') {
+      warn('Callback is not a function', { clientId, event: MSG_TYPE.GET_ASSIGNMENTS });
+      return;
+    }
+
+    try {
+      const assignments = chatModule.relationsManage.getAssignments();
+      callback({ status: 'ok', assignments });
+    } catch (error) {
+      error('Error getting assignments:', { error: error }, 'GET_ASSIGNMENTS');
+      callback({ status: 'error', message: error.message ?? 'Unknown error' });
+    }
+  });
+
+  // 获取指定房间的分配
+  socket.on(MSG_TYPE.GET_ASSIGNMENTS_FOR_ROOM, (data, callback) => {
+    if (typeof callback !== 'function') {
+      warn('Callback is not a function', { clientId, event: MSG_TYPE.GET_ASSIGNMENTS_FOR_ROOM });
+      return;
+    }
+    const { roomName } = data
+    try {
+      const assignments = chatModule.relationsManage.getAssignmentsForRoom(roomName);
+      callback({ status: 'ok', assignments });
+    } catch (error) {
+      error('Error getting assignments for room:', { error: error }, 'GET_ASSIGNMENTS_FOR_ROOM');
+      callback({ status: 'error', message: error.message ?? 'Unknown error' });
+    }
+  });
+
   // 客户端断开连接
   socket.on('disconnect', (reason) => {
     info(`Client disconnected from ${NAMESPACES.ROOMS} namespace`, { clientId, reason });
@@ -908,6 +1038,78 @@ function setupSocketListenersOnLlmNsp(socket) {
     // 调用 ChatModule 的 handleLlmRequest 方法
     chatModule.handleLlmRequest(socket, data);
     callback({ status: 'ok' }) // 统一所有callback的调用形式
+  });
+
+  // 编辑消息 (仅限房间内的客户端或管理员)
+  socket.on(MSG_TYPE.EDIT_MESSAGE, (data, callback) => {
+    if (typeof callback !== 'function') {
+      warn('Callback is not a function', { clientId, event: MSG_TYPE.EDIT_MESSAGE });
+      return;
+    }
+    // 权限检查：可以根据消息的发送者 clientId 和当前 clientId 进行判断，或者管理员权限
+    // 这里简化权限检查，假设房间内成员都可以编辑消息
+    const { roomName, messageId, updatedMessage, fromLlm } = data;
+    try {
+      if (chatModule.editMessage(roomName, messageId, updatedMessage, fromLlm)) {
+        callback({ status: 'ok' });
+        // 可选：广播消息已编辑事件到房间内的其他客户端
+        // io.to(roomName).emit(MSG_TYPE.MESSAGE_EDITED, { messageId, updatedMessage }); // 需要定义新的事件类型 MESSAGE_EDITED
+      } else {
+        callback({ status: 'error', message: 'Failed to edit message' });
+      }
+    } catch (error) {
+      error('Error editing message:', { error: error }, 'EDIT_MESSAGE');
+      callback({ status: 'error', message: error.message ?? 'Unknown error' });
+    }
+  });
+
+  // 删除消息 (仅限消息发送者或管理员)
+  socket.on(MSG_TYPE.DELETE_MESSAGE, (data, callback) => {
+    if (typeof callback !== 'function') {
+      warn('Callback is not a function', { clientId, event: MSG_TYPE.DELETE_MESSAGE });
+      return;
+    }
+    // 权限检查：可以根据消息的发送者 clientId 和当前 clientId 进行判断，或者管理员权限
+    // 这里简化权限检查，假设房间内成员都可以删除消息
+    const { roomName, messageId, fromLlm } = data;
+    try {
+      if (chatModule.deleteMessage(roomName, messageId, fromLlm)) {
+        callback({ status: 'ok' });
+        // 可选：广播消息已删除事件到房间内的其他客户端
+        // io.to(roomName).emit(MSG_TYPE.MESSAGE_DELETED, { messageId }); // 需要定义新的事件类型 MESSAGE_DELETED
+      } else {
+        callback({ status: 'error', message: 'Failed to delete message' });
+      }
+    } catch (error) {
+      error('Error deleting message:', { error: error }, 'DELETE_MESSAGE');
+      callback({ status: 'error', message: error.message ?? 'Unknown error' });
+    }
+  });
+
+  // 清空消息 (仅限管理前端或房主)
+  socket.on(MSG_TYPE.CLEAR_MESSAGES, (data, callback) => {
+    if (typeof callback !== 'function') {
+      warn('Callback is not a function', { clientId, event: MSG_TYPE.CLEAR_MESSAGES });
+      return;
+    }
+    const permissionResult = checkPermission('monitor'); // 或者可以根据角色进行更细致的权限控制，例如房主权限
+    if (permissionResult !== true) {
+      callback(permissionResult);
+      return;
+    }
+    const { roomName, fromLlm } = data;
+    try {
+      if (chatModule.clearMessages(roomName, fromLlm)) {
+        callback({ status: 'ok' });
+        // 可选：广播消息已清空事件到房间内的其他客户端
+        // io.to(roomName).emit(MSG_TYPE.MESSAGES_CLEARED); // 需要定义新的事件类型 MESSAGES_CLEARED
+      } else {
+        callback({ status: 'error', message: 'Failed to clear messages' });
+      }
+    } catch (error) {
+      error('Error clearing messages:', { error: error }, 'CLEAR_MESSAGES');
+      callback({ status: 'error', message: error.message ?? 'Unknown error' });
+    }
   });
 
   // 客户端断开连接
@@ -1179,8 +1381,8 @@ function cleanUpClient(clientId, clientType) {
   } else if (clientType !== 'monitor') {
     chatModule.relationsManage.removeClientRooms(clientId);
   }
-  // 3. 清理与客户端相关的其他数据结构 (例如 llmRequests, guestRequestQueues 等)
-  // TODO...
+  // 3. 客户端断开连接后，广播客户端列表更新
+  broadcastClientListUpdate();
 }
 
 function readLogFile(filename, level, page, pageSize) {

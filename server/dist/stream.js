@@ -1,7 +1,7 @@
-// lib/stream.js
+// server/dist/stream.js
 import { MSG_TYPE, STREAM_EVENTS } from '../lib/constants.js';
 import { uuidv4 } from '../lib/uuid/uuid.js';
-import ss from '../server/node_modules/@sap_oss/node-socketio-stream/index.js';
+import ss from '../node_modules/@sap_oss/node-socketio-stream/index.js';
 import { logger, error, warn, info } from './logger.js'; // 导入 logger
 
 /**
