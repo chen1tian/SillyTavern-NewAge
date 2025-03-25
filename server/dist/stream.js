@@ -142,7 +142,7 @@ function forwardStreamData(io, namespace, llmRequests, originalData) {
         streamId: originalData.streamId, // 使用原始 data 中的 streamId
         outputId: originalData.outputId, // 使用原始 data 中的 outputId
         requestId: originalData.requestId, // 使用原始 data 中的 requestId
-        source: 'server',
+        source: originalData.source,
       });
     } else {
       warn(`No matching requests found for requestId: ${originalData.requestId}`, {}, 'STREAM_WARNING');
