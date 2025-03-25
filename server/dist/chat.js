@@ -37,7 +37,7 @@ class ChatModule {
     // }
 
     // 3. LLM 请求映射 (用于消息路由)
-    this.llmRequests = {}; // { [requestId]: { originalClient: string, room: string, target: string } }
+    this.llmRequests = {}; // { [requestId]: { originalClient: string, room: string, target: string | string[], responses: string[], completed: boolean, responseCount: number} }
 
     // 4. 已连接的 SillyTavern 扩展端列表
     // string[]  // SillyTavern 扩展端的 clientId 数组
@@ -248,7 +248,7 @@ class ChatModule {
    * 添加消息到房间的消息队列。
    * @param {string} roomName - 房间名。
    * @param {object} message - 消息对象。
-   * @param {boolean} fromLlm -是否是LLM响应
+   * @param {boolean} fromLlm - 是否是 LLM 响应
    * @returns {string | null} - 消息 ID (如果成功) 或 null (如果失败)。
    */
   addMessage(roomName, message, fromLlm) {
@@ -258,7 +258,6 @@ class ChatModule {
 
     // 生成唯一的消息 ID
     const messageId = uuidv4();
-
     // 添加消息 ID 和时间戳
     const fullMessage = {
       ...message,
@@ -275,7 +274,8 @@ class ChatModule {
       // 将消息添加到房间的消息队列
       this.rooms[roomName].messageQueue.push(fullMessage);
     }
-    return messageId;
+    this.sendFullContextToExtensions(roomName); // 在 addMessage 中调用，确保每次添加消息后都更新上下文
+    return messageId; // 无论是请求消息还是响应消息，都返回 messageId
   }
 
   /**
@@ -283,24 +283,32 @@ class ChatModule {
    * @param {string} roomName - 房间名。
    * @param {string} messageId - 消息 ID。
    * @param {object} updatedMessage - 更新后的消息对象 (只包含需要更新的字段)。
+   * @param {boolean} fromLlm - 是否是LLM的响应消息
+   * @param {string} responseId - 如果是LLM的响应消息，则需要responseId
    * @returns {boolean} - 是否成功修改。
    */
-  editMessage(roomName, messageId, updatedMessage, fromLlm) {
+  editMessage(roomName, messageId, updatedMessage, fromLlm, responseId) {
     if (!this.rooms[roomName]) {
       return false; // 房间不存在
     }
     if (fromLlm) {
+      //如果是LLM的响应消息
+      if (!responseId) {
+        return false;// 缺少responseId
+      }
       const responseQueue = this.llmResponseQueues[roomName];
       if (!responseQueue) {
-        return false;
+        return false
       }
-      const messageIndex = responseQueue.findIndex(msg => msg.messageId === messageId);
+      const messageIndex = responseQueue.findIndex(msg => msg.responseId === responseId);
       if (messageIndex === -1) {
         return false; // 未找到消息
       }
       // 使用 Object.assign 进行部分更新
       responseQueue[messageIndex] = { ...responseQueue[messageIndex], ...updatedMessage };
+      this.sendFullContextToExtensions(roomName);
     } else {
+      //如果是客户端的请求消息
       const messageQueue = this.rooms[roomName].messageQueue;
       const messageIndex = messageQueue.findIndex(msg => msg.messageId === messageId);
 
@@ -310,45 +318,56 @@ class ChatModule {
 
       // 使用 Object.assign 进行部分更新
       messageQueue[messageIndex] = { ...messageQueue[messageIndex], ...updatedMessage };
+      this.sendFullContextToExtensions(roomName);
     }
     return true;
   }
 
   /**
-   * 根据消息 ID 删除消息。
-   * @param {string} roomName - 房间名。
-   * @param {string} messageId - 消息 ID。
-   * @returns {boolean} - 是否成功删除。
-   */
-  deleteMessage(roomName, messageId, fromLlm) {
+ * 删除消息（支持批量删除）。
+ * @param {string} roomName - 房间名。
+ * @param {string | string[]} messageIds - 要删除的客户端请求消息 ID（或 ID 数组）。
+ * @param {string | string[]} responseIds - 要删除的 LLM 响应消息 ID（或 ID 数组）。
+ * @returns {boolean} - 是否成功删除（只要有任何一个消息被成功删除，就返回 true）。
+ */
+  deleteMessage(roomName, messageIds, responseIds) {
     if (!this.rooms[roomName]) {
       return false; // 房间不存在
     }
 
-    if (fromLlm) {
-      const responseQueue = this.llmResponseQueues[roomName];
-      if (!responseQueue) {
-        return false;
-      }
-      const messageIndex = responseQueue.findIndex(msg => msg.messageId === messageId);
-      if (messageIndex === -1) {
-        return false; // 未找到消息
-      }
+    let anySuccess = false; // 标记是否有任何消息被成功删除
 
-      // 从队列中删除消息
-      responseQueue.splice(messageIndex, 1);
-    } else {
-      const messageQueue = this.rooms[roomName].messageQueue;
-      const messageIndex = messageQueue.findIndex(msg => msg.messageId === messageId);
-
-      if (messageIndex === -1) {
-        return false; // 未找到消息
+    // 1. 处理客户端请求消息 (messageIds)
+    const messageQueue = this.rooms[roomName].messageQueue;
+    if (messageIds && messageQueue) {
+      const idsToDelete = Array.isArray(messageIds) ? messageIds : [messageIds]; // 统一为数组
+      for (const id of idsToDelete) {
+        const messageIndex = messageQueue.findIndex(msg => msg.messageId === id);
+        if (messageIndex !== -1) {
+          messageQueue.splice(messageIndex, 1);
+          anySuccess = true;
+        }
       }
-
-      // 从队列中删除消息
-      messageQueue.splice(messageIndex, 1);
     }
-    return true;
+
+    // 2. 处理 LLM 响应消息 (responseIds)
+    const responseQueue = this.llmResponseQueues[roomName];
+    if (responseIds && responseQueue) {
+      const idsToDelete = Array.isArray(responseIds) ? responseIds : [responseIds]; // 统一为数组
+      for (const id of idsToDelete) {
+        const messageIndex = responseQueue.findIndex(msg => msg.responseId === id);
+        if (messageIndex !== -1) {
+          responseQueue.splice(messageIndex, 1);
+          anySuccess = true;
+        }
+      }
+    }
+
+    if (anySuccess) {
+      this.sendFullContextToRoom(roomName); // 发送更新后的完整上下文
+    }
+
+    return anySuccess;
   }
 
   /**
@@ -367,6 +386,53 @@ class ChatModule {
       this.rooms[roomName].messageQueue = []; // 清空消息队列
     }
     return true;
+  }
+
+  /**
+   * 构建完整的聊天上下文。
+   * @param {string} roomName 房间名
+   * @returns {object[] | null} 完整的聊天上下文 (消息数组)，如果房间不存在则返回 null。
+   */
+  buildFullContext(roomName) {
+    if (!this.rooms[roomName]) {
+      return null; // 房间不存在
+    }
+
+    // 合并 messageQueue 和 llmResponseQueues
+    const messageQueue = this.rooms[roomName].messageQueue;
+    const responseQueue = this.llmResponseQueues[roomName] || []; // 确保 llmResponseQueues[roomName] 存在
+
+    // 将两个队列合并成一个，并根据时间戳排序
+    const fullContext = [...messageQueue, ...responseQueue].sort(
+      (a, b) => a.timestamp - b.timestamp
+    );
+
+    return fullContext;
+  }
+
+  /**
+   * 将完整上下文发送给目标 SillyTavern 扩展端。
+   * @param {string} roomName - 房间名
+   */
+  sendFullContextToExtensions(roomName) {
+
+    const fullContext = this.buildFullContext(roomName);
+
+    if (!fullContext) {
+      warn('Room not found when trying to send full context', { roomName }, 'SEND_FULL_CONTEXT');
+      return;
+    }
+
+    // 向房间内的所有成员发送完整上下文
+    this.io.of(NAMESPACES.LLM).to(roomName).emit(MSG_TYPE.UPDATE_CONTEXT, { context: fullContext });
+
+    // 获取目标 SillyTavern 扩展端 (根据你的连接策略)
+    const targets = this.relationsManage.getAssignmentsForRoom(roomName)
+
+    // 向目标扩展发送完整上下文
+    for (const target of targets) {
+      this.io.of(NAMESPACES.LLM).to(target).emit(MSG_TYPE.UPDATE_CONTEXT, { context: fullContext });
+    }
   }
 
   /**
@@ -401,15 +467,23 @@ class ChatModule {
       console.warn('Invalid LLM request:', data);
       return;
     }
+    // 2. 将请求添加到消息队列, 并添加fromClient的标记
+    llmRequest = {
+      ...llmRequest,
+      fromClient: true
+    }
+    this.addMessage(roomName, llmRequest, false); // 添加到消息队列
 
-    // 2. 将请求添加到 llmRequests (用于后续路由响应)
+    // 3. 将请求添加到 llmRequests (用于后续路由响应)
     this.llmRequests[requestId] = {
       originalClient: clientId,
       room: roomName,
       target: target, // target 现在可以是字符串或数组
+      responses: [],  // 新增：存储响应 ID
+      completed: false, // 新增：请求是否完成
+      responseCount: 0 // 新增：已接收的响应数量
     };
-
-    // 3. 根据消息请求模式和角色处理请求
+    // 4. 根据消息请求模式和角色处理请求
     switch (this.messageRequestMode) {
       case 'Default':
         if (role === 'guest') {
@@ -418,8 +492,7 @@ class ChatModule {
             this.guestRequestQueues[roomName] = [];
           }
           this.guestRequestQueues[roomName].push(llmRequest);
-          // 广播给房间内其他成员 (用于同步消息)
-          this.io.to(roomName).emit(MSG_TYPE.LLM_REQUEST, llmRequest);
+
         } else if (role === 'master') {
           // 合并 guest 请求 (如果存在)
           const guestRequests = this.guestRequestQueues[roomName];
@@ -491,11 +564,25 @@ class ChatModule {
       return;
     }
 
-    // 2. 将响应添加到对应房间的llmResponseQueues中
-    const messageId = this.addMessage(roomName, data, true);
+    // 2. 为每个响应生成唯一的 responseId
+    const responseId = uuidv4();
+    const fullResponse = {
+      ...data,
+      responseId: responseId // 将 responseId 添加到响应数据中
+    }
+    // 3. 将响应添加到对应房间的llmResponseQueues中
+    const messageId = this.addMessage(roomName, fullResponse, true);
 
-    // 3. (可选) 清理 llmRequests 中的条目
-    delete this.llmRequests[requestId];
+    // 4. 将 responseId 添加到 llmRequests.responses 数组
+    originalRequest.responses.push(responseId);
+    originalRequest.responseCount++;
+    // 5. 检查是否所有响应都已收到 (简化版，假设 target 数量已知)
+    if (Array.isArray(originalRequest.target) && originalRequest.responseCount >= originalRequest.target.length) {
+      originalRequest.completed = true;
+      // (可选) 从 llmRequests 中移除已完成的请求
+      // delete this.llmRequests[requestId];
+      // 或者添加到 completedRequests 集合，稍后统一清理
+    }
   }
 
   /**

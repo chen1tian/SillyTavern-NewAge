@@ -126,6 +126,14 @@ class MemberManagement {
     for (const managerId of room.managers) {
       this.io.to(managerId).emit(eventName, data);
     }
+
+    //  向被更改角色的客户端发送通知
+    this.io.to(clientId).emit(MSG_TYPE.MEMBER_ROLE_CHANGED, {
+      clientId: clientId,
+      roomName: roomName,
+      role: role
+    });
+    
   }
 
   // ... 其他成员管理相关的方法 ...

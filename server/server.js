@@ -857,7 +857,7 @@ function setupSocketListenersOnRoomsNsp(socket) {
       if (chatModule.memberManagement.setMemberRole(targetClientId, roomName, role)) {
         callback({ status: 'ok' });
         // 可选：通知房间内其他成员角色变更
-        chatModule.memberManagement.notifyRoomMasterAndManagers(roomName, MSG_TYPE.MEMBER_JOINED, { clientId: targetClientId, role }); // 再次使用 MEMBER_JOINED 通知，可以考虑定义新的事件类型
+        chatModule.memberManagement.notifyRoomMasterAndManagers(roomName, MSG_TYPE.SET_MEMBER_ROLE, { clientId: targetClientId, role }); 
       } else {
         callback({ status: 'error', message: 'Failed to set member role' });
       }
@@ -1040,29 +1040,6 @@ function setupSocketListenersOnLlmNsp(socket) {
     callback({ status: 'ok' }) // 统一所有callback的调用形式
   });
 
-  // 编辑消息 (仅限房间内的客户端或管理员)
-  socket.on(MSG_TYPE.EDIT_MESSAGE, (data, callback) => {
-    if (typeof callback !== 'function') {
-      warn('Callback is not a function', { clientId, event: MSG_TYPE.EDIT_MESSAGE });
-      return;
-    }
-    // 权限检查：可以根据消息的发送者 clientId 和当前 clientId 进行判断，或者管理员权限
-    // 这里简化权限检查，假设房间内成员都可以编辑消息
-    const { roomName, messageId, updatedMessage, fromLlm } = data;
-    try {
-      if (chatModule.editMessage(roomName, messageId, updatedMessage, fromLlm)) {
-        callback({ status: 'ok' });
-        // 可选：广播消息已编辑事件到房间内的其他客户端
-        // io.to(roomName).emit(MSG_TYPE.MESSAGE_EDITED, { messageId, updatedMessage }); // 需要定义新的事件类型 MESSAGE_EDITED
-      } else {
-        callback({ status: 'error', message: 'Failed to edit message' });
-      }
-    } catch (error) {
-      error('Error editing message:', { error: error }, 'EDIT_MESSAGE');
-      callback({ status: 'error', message: error.message ?? 'Unknown error' });
-    }
-  });
-
   // 删除消息 (仅限消息发送者或管理员)
   socket.on(MSG_TYPE.DELETE_MESSAGE, (data, callback) => {
     if (typeof callback !== 'function') {
@@ -1071,12 +1048,11 @@ function setupSocketListenersOnLlmNsp(socket) {
     }
     // 权限检查：可以根据消息的发送者 clientId 和当前 clientId 进行判断，或者管理员权限
     // 这里简化权限检查，假设房间内成员都可以删除消息
-    const { roomName, messageId, fromLlm } = data;
+    const { roomName, messageIds, responseIds } = data; // 现在是 messageIds 和 responseIds
     try {
-      if (chatModule.deleteMessage(roomName, messageId, fromLlm)) {
+      // 现在调用 deleteMessage 时，传入 roomName, messageIds (可能为 null), responseIds (可能为 null)
+      if (chatModule.deleteMessage(roomName, messageIds, responseIds)) {
         callback({ status: 'ok' });
-        // 可选：广播消息已删除事件到房间内的其他客户端
-        // io.to(roomName).emit(MSG_TYPE.MESSAGE_DELETED, { messageId }); // 需要定义新的事件类型 MESSAGE_DELETED
       } else {
         callback({ status: 'error', message: 'Failed to delete message' });
       }

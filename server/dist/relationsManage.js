@@ -140,7 +140,7 @@ class RelationsManage {
    */
   broadcastAvailableExtensions() {
     for (const clientRoom in this.assignments) {
-      this.io.to(clientRoom).emit(MSG_TYPE.AVAILABLE_EXTENSIONS, { extensions: this.assignments[clientRoom] });
+      this.io.of(NAMESPACES.ROOMS).to(clientRoom).emit(MSG_TYPE.AVAILABLE_EXTENSIONS, { extensions: this.assignments[clientRoom] });
     }
   }
 
