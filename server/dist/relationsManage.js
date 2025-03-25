@@ -173,28 +173,28 @@ class RelationsManage {
 
   /**
    * 添加客户端房间。
-   *  @param {string} clientRoom - 客户端房间ID
+   *  @param {string} identity - 客户端房间ID
    */
-  addClientRooms(clientRoom) {
-    if (!this.connectedClientRooms.includes(clientRoom)) {
-      this.connectedClientRooms.push(clientRoom);
+  addClientRooms(identity) {
+    if (!this.connectedClientRooms.includes(identity)) {
+      this.connectedClientRooms.push(identity);
       this.updateAssignments(); // 重新计算
       this.broadcastAvailableExtensions();
-      info('Client rooms connected', { clientRoom }, 'CLIENT_CONNECTED');
+      info('Client rooms connected', { identity }, 'CLIENT_CONNECTED');
     }
   }
 
   /**
    * 移除客户端房间。
-   *  @param {string} clientRoom - 客户端房间ID
+   *  @param {string} identity - 客户端房间ID
    */
-  removeClientRooms(clientRoom) {
-    const index = this.connectedClientRooms.indexOf(clientRoom);
+  removeClientRooms(identity) {
+    const index = this.connectedClientRooms.indexOf(identity);
     if (index > -1) { //更明确的检查
       this.connectedClientRooms.splice(index, 1);
       this.updateAssignments(); // 重新计算
       this.broadcastAvailableExtensions();
-      info('Client rooms disconnected', { clientRoom }, 'CLIENT_DISCONNECTED');
+      info('Client rooms disconnected', { identity }, 'CLIENT_DISCONNECTED');
     }
   }
 }

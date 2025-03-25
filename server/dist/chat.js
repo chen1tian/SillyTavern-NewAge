@@ -65,13 +65,13 @@ class ChatModule {
 
   /**
    * 创建房间。
-   * @param {string} roomName - 房间名。
-   * @param {string} creatorClientId - 创建者客户端 ID。
+   * @param {string} roomName - 房间名 (现在应该是 identity)。
+   * @param {string} creatorClientId - 创建者客户端 ID (现在应该是 identity)。
    * @returns {boolean} - 是否成功创建。
    */
-  createRoom(roomName, creatorClientId) {
-    // 使用 creatorClientId 作为 roomName
-    roomName = creatorClientId; // 修改这里，使用 creatorClientId 作为房间名
+  createRoom(roomName, creatorIdentity) {
+    // 使用 creatorIdentity 作为 roomName
+    roomName = creatorIdentity; // 修改这里
     if (this.rooms[roomName]) {
       // 房间已存在
       return false;
@@ -79,7 +79,7 @@ class ChatModule {
 
     // 使用 Rooms.js 创建房间 (如果房间不存在，Socket.IO 会自动创建)
     try {
-      Rooms.createRoom(roomName, creatorClientId); // 修改后的 Rooms.createRoom
+      Rooms.createRoom(roomName, creatorIdentity); // 修改后的 Rooms.createRoom
     } catch (error) {
       // Rooms.js 抛出错误
       console.error('Error creating room using Rooms.js:', error);
@@ -89,15 +89,15 @@ class ChatModule {
     // 创建 Room 对象并添加到 this.rooms
     this.rooms[roomName] = {
       name: roomName,
-      members: new Set([creatorClientId]), // 初始成员：创建者
-      master: creatorClientId, // 房主是创建者
+      members: new Set([creatorIdentity]), // 初始成员：创建者
+      master: creatorIdentity, // 房主是创建者
       managers: new Set(),
-      guests: new Set([creatorClientId]), //一开始都是访客
+      guests: new Set([creatorIdentity]),//一开始都是访客
       messageQueue: [],
       createdAt: new Date(),
     };
     //将创建者转变为master
-    this.changeClientRole(creatorClientId, roomName, 'master');
+    this.changeClientRole(creatorIdentity, roomName, 'master'); // 使用 identity
     return true;
   }
 
@@ -132,24 +132,24 @@ class ChatModule {
 
   /**
    * 加入房间。
-   * @param {string} clientId - 客户端 ID。
+   * @param {string} identity - 客户端 ID (现在应该是 identity)。
    * @param {string} roomName - 房间名。
    * @param {string} [role='guest'] - 角色 ('guest', 'manager', 'master')。
    * @returns {boolean} - 是否成功加入。
    */
-  joinRoom(clientId, roomName, role = 'guest') {
+  joinRoom(identity, roomName, role = 'guest') { // 修改参数名为 identity
     if (!this.rooms[roomName]) {
       // 房间不存在
       return false;
     }
     //是否已经在房间
-    if (this.rooms[roomName].members.has(clientId)) {
+    if (this.rooms[roomName].members.has(identity)) { // 使用 identity
       return false;
     }
 
     // 使用 Rooms.js 将客户端添加到房间
     try {
-      Rooms.addClientToRoom(clientId, roomName);
+      Rooms.addClientToRoom(identity, roomName); // 使用 identity
     } catch (error) {
       // Rooms.js 抛出错误
       console.error('Error adding client to room using Rooms.js:', error);
@@ -157,14 +157,14 @@ class ChatModule {
     }
 
     // 将客户端添加到房间成员列表
-    this.rooms[roomName].members.add(clientId);
-    this.changeClientRole(clientId, roomName, role);
+    this.rooms[roomName].members.add(identity); // 使用 identity
+    this.changeClientRole(identity, roomName, role);  // 使用 identity
     // 通知房间内的 master 和 managers
-    this.memberManagement.notifyRoomMasterAndManagers(roomName, MSG_TYPE.MEMBER_JOINED, { clientId, role });
+    this.memberManagement.notifyRoomMasterAndManagers(roomName, MSG_TYPE.MEMBER_JOINED, { clientId: identity, role }); // 使用 identity
 
     // 通知新加入的成员
-    this.io.to(clientId).emit(MSG_TYPE.MEMBER_ROLE_CHANGED, {
-      clientId: clientId,
+    this.io.to(identity).emit(MSG_TYPE.MEMBER_ROLE_CHANGED, { // 使用 identity
+      clientId: identity, // 这里仍然使用 clientId 字段，但实际上它现在是 identity
       roomName: roomName,
       role: role // 或者直接使用  role: this.rooms[roomName].guests.has(clientId) ? 'guest' : (this.rooms[roomName].managers.has(clientId) ? 'manager' : 'master')
     });
@@ -174,30 +174,33 @@ class ChatModule {
 
   /**
    * 离开房间。
-   * @param {string} clientId - 客户端 ID。
+   * @param {string} identity - 客户端 ID (现在应该是 identity)。
    * @param {string} roomName - 房间名。
    * @returns {boolean} - 是否成功离开。
    */
-  leaveRoom(clientId, roomName) {
+  leaveRoom(identity, roomName) { // 修改参数名为 identity
     if (!this.rooms[roomName]) {
-      // 房间不存在
-      return false;
+      return false; //房间不存在
+    }
+
+    // 禁止离开与 identity 同名的房间
+    if (roomName === identity) {
+      warn(`Client ${identity} attempted to leave its own room ${roomName}. Preventing.`, {}, 'ROOM_WARNING');
+      return false; // 禁止离开
     }
 
     // 使用 Rooms.js 将客户端从房间移除
     try {
-      Rooms.removeClientFromRoom(clientId, roomName);
+      Rooms.removeClientFromRoom(identity, roomName); // 使用 identity
     } catch (error) {
-      // Rooms.js 抛出错误
       console.error('Error removing client from room using Rooms.js:', error);
       return false;
     }
-
     // 将客户端从房间成员列表中移除
-    this.rooms[roomName].members.delete(clientId);
+    this.rooms[roomName].members.delete(identity); // 使用 identity
 
     // 通知房间内的 master 和 managers
-    this.memberManagement.notifyRoomMasterAndManagers(roomName, MSG_TYPE.MEMBER_LEFT, { clientId });
+    this.memberManagement.notifyRoomMasterAndManagers(roomName, MSG_TYPE.MEMBER_LEFT, { clientId: identity }); // 使用 identity
 
     // 如果房间为空，则删除房间 (可选)
     if (this.rooms[roomName].members.size === 0) {
@@ -220,27 +223,32 @@ class ChatModule {
   }
 
   /**
-   * 更改用户角色
-   * @param {*} clientId
-   * @param {*} roomName
-   * @param {*} role
-   * @returns
-   */
-  changeClientRole(clientId, roomName, role) {
+     * 更改用户角色
+     * @param {*} identity
+     * @param {*} roomName
+     * @param {*} role
+     * @returns
+     */
+  changeClientRole(identity, roomName, role) {
     if (!this.rooms[roomName]) {
       return false;
     }
     const room = this.rooms[roomName];
-    room.guests.delete(clientId);
-    room.managers.delete(clientId);
+    room.guests.delete(identity);
+    room.managers.delete(identity);
     if (role === 'master') {
-      room.master = clientId;
+      room.master = identity;
     } else if (role === 'manager') {
-      room.managers.add(clientId);
+      room.managers.add(identity)
     } else {
-      room.guests.add(clientId);
+      room.guests.add(identity);
     }
-
+    //  向被更改角色的客户端发送通知
+    this.io.of(NAMESPACES.ROOMS).to(identity).emit(MSG_TYPE.MEMBER_ROLE_CHANGED, { // 使用 identity
+      clientId: identity, // 这里的 clientId 实际上是 identity
+      roomName: roomName,
+      role: role
+    });
     return true;
   }
 
@@ -586,35 +594,19 @@ class ChatModule {
   }
 
   /**
-   * 获取离线消息。
-   * @param {string} clientId - 客户端 ID。
-   * @param {string | null} lastMessageId - 最后接收到的消息 ID (如果为空，则获取所有消息)。
-   * @returns {object[] | null} - 离线消息数组 (如果未找到房间或消息，则返回 null)。
+   * 获取指定房间的完整上下文（用于离线消息或其他需要完整上下文的场景）。
+   * @param {string} identity - 客户端 ID (用于记录日志)。
+   * @param {string} roomName - 房间名。
+   * @returns {object[] | null} - 完整的聊天上下文 (消息数组)，如果房间不存在则返回 null。
    */
-  getOfflineMessages(clientId, lastMessageId) {
-    const roomName = clientId; // 假设房间名与 clientId 相同
+  getOfflineMessages(identity, roomName) {
     if (!this.rooms[roomName]) {
-      warn('Room not found', { clientId, roomName }, 'GET_OFFLINE_MESSAGES');
+      warn('Room not found', { identity, roomName }, 'GET_OFFLINE_MESSAGES');
       return null; // 房间不存在
     }
 
-    const messageQueue = this.rooms[roomName].messageQueue;
-
-    if (!lastMessageId) {
-      // 返回所有消息
-      info('Returning all messages', { clientId, roomName });
-      return messageQueue;
-    }
-
-    const lastMessageIndex = messageQueue.findIndex(msg => msg.messageId === lastMessageId);
-
-    if (lastMessageIndex === -1) {
-      warn('Last message not found', { clientId, roomName, lastMessageId }, 'GET_OFFLINE_MESSAGES');
-      return null; // 未找到最后接收的消息
-    }
-
-    // 返回 lastMessageIndex 之后的所有消息
-    return messageQueue.slice(lastMessageIndex + 1);
+    info('Returning full context', { identity, roomName }, 'GET_OFFLINE_MESSAGES');
+    return this.buildFullContext(roomName); // 返回完整上下文
   }
 
   // ... 方法 ...
