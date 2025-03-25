@@ -102,6 +102,34 @@ class ChatModule {
   }
 
   /**
+     * 为 SillyTavern 扩展端创建房间。
+     * @param {string} identity - SillyTavern 扩展端的 identity。
+     */
+  createExtensionRoom(identity) {
+    // 使用 Rooms.js 创建房间 (或直接使用 socket.join)
+    try {
+      Rooms.createRoom(identity, identity); // 房间名就是 identity
+    } catch (error) {
+      console.error('Error creating extension room using Rooms.js:', error);
+      // 这里可以根据需要进行错误处理 (例如，重试、记录日志等)
+    }
+
+    // (可选) 将扩展端的房间添加到 this.rooms
+    // 这不是必需的，但如果你需要跟踪所有房间 (包括扩展端的房间)，可以这样做
+    if (!this.rooms[identity]) {
+      this.rooms[identity] = {
+        name: identity,
+        members: new Set([identity]), // 只有一个成员，就是扩展端自己
+        master: identity, // 房主就是扩展端自己
+        managers: new Set(),
+        guests: new Set(),
+        messageQueue: [], // 不需要消息队列
+        createdAt: new Date(),
+      };
+    }
+  }
+
+  /**
    * 删除房间。
    * @param {string} roomName - 房间名。
    * @returns {boolean} - 是否成功删除。

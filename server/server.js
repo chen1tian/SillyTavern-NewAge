@@ -358,10 +358,11 @@ io.on('connection', async (socket) => {
     chatModule.joinRoom(clientId, 'monitor-room', 'manager');
     info('Client connected to /clients namespace', { clientId, clientType });
   } else if (clientType === 'SillyTavern') {
-    handleClientConnection(`Extension client connected: ${clientId}`);
+    handleClientConnection(`Extension client connected: ${identity}`);
+    chatModule.createExtensionRoom(identity);
     // 添加已连接的扩展端
-    chatModule.relationsManage.addConnectedExtension(clientId);
-    info('Client connected to /clients namespace', { clientId, clientType });
+    chatModule.relationsManage.addConnectedExtension(identity);
+    info('Client connected to /clients namespace', { identity, clientType });
   } else {
     // 普通客户端
     handleClientConnection(`Client connected: ${identity}`);
