@@ -10,5 +10,8 @@
   "transport": "websocket",
   "extensionRooms": {},
   "clientKeys": {},
-  "networkSafe":true
+  "networkSafe":true,
+  "contextPageSize": 50, 
+  "contextSendDelay": 100, 
+  "defaultRoomMessageRequestMode": "Immediate",
 }

@@ -65,6 +65,9 @@ let serverSettings = {
   sillyTavernPassword: new Map(), // 存储形式：{clientId: hash}
   networkSafe: true,
   debugMode: false,
+  contextPageSize: 50,   // 每页包含的最大消息数量 (可配置)
+  contextSendDelay: 100, // 发送每页之间的延迟（毫秒） (可配置, 0表示无延迟)
+  defaultRoomMessageRequestMode: 'Immediate',
 };
 
 export { serverSettings };
@@ -872,7 +875,7 @@ function setupSocketListenersOnRoomsNsp(socket) {
       if (chatModule.memberManagement.setMemberRole(targetIdentity, roomName, role)) {
         callback({ status: 'ok' });
         // 可选：通知房间内其他成员角色变更
-        chatModule.memberManagement.notifyRoomMasterAndManagers(roomName, MSG_TYPE.SET_MEMBER_ROLE, { identity: targetIdentity, role }); 
+        chatModule.memberManagement.notifyRoomMasterAndManagers(roomName, MSG_TYPE.SET_MEMBER_ROLE, { identity: targetIdentity, role });
       } else {
         callback({ status: 'error', message: 'Failed to set member role' });
       }
@@ -1002,6 +1005,48 @@ function setupSocketListenersOnRoomsNsp(socket) {
     }
   });
 
+  socket.on(MSG_TYPE.SET_ROOM_MESSAGE_REQUEST_MODE, (data, callback) => {
+    if (typeof callback !== 'function') { /* ... 警告 ... */ return; }
+    const { roomName, mode } = data;
+
+    if (!roomName || !mode) {
+      callback({ status: 'error', message: 'roomName and mode are required.' });
+      return;
+    }
+    if (!VALID_ROOM_MODES.includes(mode)) {
+      callback({ status: 'error', message: `Invalid mode specified. Valid modes are: ${VALID_ROOM_MODES.join(', ')}` });
+      return;
+    }
+
+    // 权限检查 (重要!)
+    // 1. 检查房间是否存在
+    const roomInfo = chatModule.roomManagement.getRoomInfo(roomName);
+    if (!roomInfo) {
+      callback({ status: 'error', message: `Room ${roomName} not found.` });
+      return;
+    }
+    // 2. 检查权限：必须是房间的 master 或 manager，或者是全局管理员 (monitor)
+    const isMaster = roomInfo.master === identity;
+    const isManager = roomInfo.managers.has(identity);
+    const isAdmin = clientType === 'monitor';
+
+    if (!isMaster && !isManager && !isAdmin) {
+      callback({ status: 'error', message: 'Permission denied. Only room master/manager or admin can set the mode.' });
+      return;
+    }
+
+    // 调用 RoomManagement 设置模式
+    const success = chatModule.roomManagement.setRoomMessageRequestMode(roomName, mode, identity);
+
+    if (success) {
+      info(`User ${identity} set room ${roomName} mode to ${mode}.`);
+      callback({ status: 'ok' });
+    } else {
+      // setRoomMessageRequestMode 内部应该已经记录了具体错误
+      callback({ status: 'error', message: 'Failed to set room mode.' });
+    }
+  });
+
   // 客户端断开连接
   socket.on('disconnect', (reason) => {
     info(`Client disconnected from ${NAMESPACES.ROOMS} namespace`, { clientId, reason });
@@ -1043,75 +1088,226 @@ function setupSocketListenersOnLlmNsp(socket) {
   const clientType = socket.handshake.auth.clientType;
   const identity = socket.handshake.auth.identity;
 
-  // 监听 LLM_REQUEST (现在由 ChatModule 处理)
+  // --- LLM 请求 ---
   socket.on(MSG_TYPE.LLM_REQUEST, (data, callback) => {
     if (typeof callback !== 'function') {
-      warn('Callback is not a function', { identity, event: MSG_TYPE.LLM_REQUEST });
-      return;
+      warn('Callback is not a function for LLM_REQUEST', { identity });
+      return; // 忽略没有回调的请求
     }
-    // 调用 ChatModule 的 handleLlmRequest 方法
-    chatModule.handleLlmRequest(socket, data);
-    callback({ status: 'ok' }) // 统一所有callback的调用形式
+    // 调用 ChatModule 处理，它内部会处理模式逻辑并广播增量更新
+    chatModule.handleLlmRequest(socket, data); // 传递 socket 以便 ChatModule 获取 identity
+    // 立即确认收到请求（并不代表处理完成）
+    callback({ status: 'ok', message: 'Request received.' });
   });
 
-  // 删除消息 (仅限消息发送者或管理员)
+  // --- 编辑消息 ---
+  socket.on(MSG_TYPE.EDIT_MESSAGE, (data, callback) => {
+    if (typeof callback !== 'function') { /* ... 警告 ... */ return; }
+    const { roomName, messageId, updatedFields, fromLlm = false } = data; // 默认不是 LLM 消息
+
+    if (!roomName || !messageId || !updatedFields) {
+      callback({ status: 'error', message: 'Missing required fields for editing message.' });
+      return;
+    }
+
+    // **权限检查 (重要!)**
+    // 1. 检查用户是否是房间成员
+    // 2. 检查用户是否有权编辑这条消息 (例如，只能编辑自己的，或者管理员可以编辑所有)
+    // 这里简化，假设有权限
+    const hasPermission = true; // TODO: 实现真正的权限检查逻辑
+    if (!hasPermission) {
+      callback({ status: 'error', message: 'Permission denied to edit this message.' });
+      return;
+    }
+
+    try {
+      // ChatModule.editMessage 内部会广播 MESSAGE_UPDATED
+      const success = chatModule.editMessage(roomName, messageId, updatedFields, fromLlm);
+      if (success) {
+        callback({ status: 'ok' });
+      } else {
+        callback({ status: 'error', message: 'Failed to edit message. It might not exist.' });
+      }
+    } catch (error) {
+      error('Error editing message:', { error, identity, data }, 'EDIT_MESSAGE_ERROR');
+      callback({ status: 'error', message: error.message ?? 'Unknown error during editing.' });
+    }
+  });
+
+  // --- 删除消息 ---
   socket.on(MSG_TYPE.DELETE_MESSAGE, (data, callback) => {
-    if (typeof callback !== 'function') {
-      warn('Callback is not a function', { identity, event: MSG_TYPE.DELETE_MESSAGE });
+    if (typeof callback !== 'function') { /* ... 警告 ... */ return; }
+    const { roomName, messageIds } = data; // 假设客户端只发送 messageIds
+
+    if (!roomName || !messageIds || (Array.isArray(messageIds) && messageIds.length === 0)) {
+      callback({ status: 'error', message: 'Missing required fields for deleting messages.' });
       return;
     }
-    // 权限检查：可以根据消息的发送者 clientId 和当前 clientId 进行判断，或者管理员权限
-    // 这里简化权限检查，假设房间内成员都可以删除消息
-    const { roomName, messageIds, responseIds } = data; // 现在是 messageIds 和 responseIds
+
+    // **权限检查 (重要!)**
+    // 检查用户是否有权删除这些消息 (自己的/管理员/等)
+    const hasPermission = true; // TODO: 实现真正的权限检查逻辑
+    if (!hasPermission) {
+      callback({ status: 'error', message: 'Permission denied to delete these messages.' });
+      return;
+    }
+
     try {
-      // 现在调用 deleteMessage 时，传入 roomName, messageIds (可能为 null), responseIds (可能为 null)
-      if (chatModule.deleteMessage(roomName, messageIds, responseIds)) {
+      // ChatModule.deleteMessage 内部会广播 MESSAGES_DELETED
+      const success = chatModule.deleteMessage(roomName, messageIds);
+      if (success) {
         callback({ status: 'ok' });
       } else {
-        callback({ status: 'error', message: 'Failed to delete message' });
+        // 可能没有找到任何要删除的消息
+        callback({ status: 'ok', message: 'No matching messages found to delete or operation failed.' });
       }
     } catch (error) {
-      error('Error deleting message:', { error: error }, 'DELETE_MESSAGE');
-      callback({ status: 'error', message: error.message ?? 'Unknown error' });
+      error('Error deleting message:', { error, identity, data }, 'DELETE_MESSAGE_ERROR');
+      callback({ status: 'error', message: error.message ?? 'Unknown error during deletion.' });
     }
   });
 
-  // 清空消息 (仅限管理前端或房主)
+  // --- 清空消息 ---
   socket.on(MSG_TYPE.CLEAR_MESSAGES, (data, callback) => {
-    if (typeof callback !== 'function') {
-      warn('Callback is not a function', { identity, event: MSG_TYPE.CLEAR_MESSAGES });
+    if (typeof callback !== 'function') { /* ... 警告 ... */ return; }
+    const { roomName, clearRequests = true, clearResponses = true } = data;
+
+    if (!roomName) {
+      callback({ status: 'error', message: 'roomName is required to clear messages.' });
       return;
     }
-    const permissionResult = checkPermission('monitor'); // 或者可以根据角色进行更细致的权限控制，例如房主权限
-    if (permissionResult !== true) {
-      callback(permissionResult);
+
+    // **权限检查 (重要!)**
+    // 只有房主或管理员才能清空消息
+    const roomInfo = chatModule.roomManagement.getRoomInfo(roomName);
+    const hasPermission = roomInfo && (roomInfo.master === identity || roomInfo.managers.has(identity)); // 假设管理员可以
+    // 或者 clientType === 'monitor' (如果监控端有此权限)
+    if (!hasPermission) {
+      callback({ status: 'error', message: 'Permission denied to clear messages.' });
       return;
     }
-    const { roomName, fromLlm } = data;
+
     try {
-      if (chatModule.clearMessages(roomName, fromLlm)) {
+      // ChatModule.clearMessages 内部会广播 MESSAGES_CLEARED
+      const success = chatModule.clearMessages(roomName, clearRequests, clearResponses);
+      if (success) {
         callback({ status: 'ok' });
-        // 可选：广播消息已清空事件到房间内的其他客户端
-        // io.to(roomName).emit(MSG_TYPE.MESSAGES_CLEARED); // 需要定义新的事件类型 MESSAGES_CLEARED
       } else {
-        callback({ status: 'error', message: 'Failed to clear messages' });
+        callback({ status: 'ok', message: 'Messages already cleared or operation failed.' });
       }
     } catch (error) {
-      error('Error clearing messages:', { error: error }, 'CLEAR_MESSAGES');
-      callback({ status: 'error', message: error.message ?? 'Unknown error' });
+      error('Error clearing messages:', { error, identity, data }, 'CLEAR_MESSAGES_ERROR');
+      callback({ status: 'error', message: error.message ?? 'Unknown error during clearing.' });
     }
   });
+
+  // --- 请求完整上下文 ---
+  socket.on(MSG_TYPE.GET_FULL_CONTEXT, async (data, callback) => {
+    try {
+      await chatModule.handleGetFullContextRequest(socket, data);
+    } catch (error) {
+      if (callback) {
+        callback({ status: 'error', message: 'Failed to get full context.' });
+      }
+    }
+  });
+
+  // --- 监听状态更新事件 ---
+
+  // 监听客户端（用户）输入状态
+  socket.on(MSG_TYPE.START_TYPING, (data) => {
+    const targetRoom = data?.targetRoom;
+    if (targetRoom) {
+      const roomInfo = chatModule.roomManagement.getRoomInfo(targetRoom);
+      // 验证身份是否在房间内
+      if (roomInfo && roomInfo.members.has(identity)) {
+        chatModule.broadcastMemberStatus(targetRoom, identity, MEMBER_STATUS.TYPING);
+      } else {
+        warn(`User ${identity} sent START_TYPING for invalid/unjoined room ${targetRoom}.`);
+      }
+    } else {
+      warn(`User ${identity} sent START_TYPING without targetRoom.`);
+    }
+  });
+
+  socket.on(MSG_TYPE.STOP_TYPING, (data) => {
+    const targetRoom = data?.targetRoom;
+    if (targetRoom) {
+      // 广播 idle 状态给指定房间
+      chatModule.broadcastMemberStatus(targetRoom, identity, MEMBER_STATUS.IDLE);
+    } else {
+      // 如果没有 targetRoom，理论上应该清除该用户在所有房间的 typing 状态
+      // 这需要 RoomManagement 提供 findRoomsForMember 方法
+      const userRooms = chatModule.roomManagement.findRoomsForMember(identity); // 假设有此方法
+      if (userRooms) {
+        userRooms.forEach(roomName => {
+          chatModule.broadcastMemberStatus(roomName, identity, MEMBER_STATUS.IDLE);
+        });
+      }
+      warn(`User ${identity} sent STOP_TYPING without targetRoom. Attempted global clear.`, {}, 'STATUS_UPDATE_WARN');
+    }
+  });
+
+  // 监听扩展端处理状态 
+  if (clientType === 'extension' || clientType === 'SillyTavern') {
+    socket.on(MSG_TYPE.START_PROCESSING, (data) => {
+      const targetRoom = data?.targetRoom;
+      const requestId = data?.requestId;
+      if (targetRoom) {
+        info(`Extension ${identity} started processing for room ${targetRoom}`, { requestId });
+        // 广播 processing 状态给房间
+        chatModule.broadcastMemberStatus(targetRoom, identity, MEMBER_STATUS.PROCESSING);
+      } else {
+        warn(`Extension ${identity} sent START_PROCESSING without targetRoom.`);
+      }
+    });
+
+    socket.on(MSG_TYPE.STOP_PROCESSING, (data) => {
+      const targetRoom = data?.targetRoom;
+      const requestId = data?.requestId;
+      if (targetRoom) {
+        info(`Extension ${identity} stopped processing for room ${targetRoom}`, { requestId });
+        // 广播 idle 状态给房间
+        chatModule.broadcastMemberStatus(targetRoom, identity, MEMBER_STATUS.IDLE);
+      } else {
+        warn(`Extension ${identity} sent STOP_PROCESSING without targetRoom.`);
+      }
+    });
+
+    // 监听扩展端模拟打字状态
+    socket.on(MSG_TYPE.START_TYPING, (data) => { // 扩展也使用 START_TYPING
+      const targetRoom = data?.targetRoom;
+      if (targetRoom) {
+        // 广播 typing 状态给房间
+        chatModule.broadcastMemberStatus(targetRoom, identity, MEMBER_STATUS.TYPING);
+      } else {
+        warn(`Extension ${identity} sent START_TYPING without targetRoom.`);
+      }
+    });
+    socket.on(MSG_TYPE.STOP_TYPING, (data) => { // 扩展也使用 STOP_TYPING
+      const targetRoom = data?.targetRoom;
+      if (targetRoom) {
+        // 广播 idle 状态给房间
+        chatModule.broadcastMemberStatus(targetRoom, identity, MEMBER_STATUS.IDLE);
+      } else {
+        warn(`Extension ${identity} sent STOP_TYPING without targetRoom.`);
+      }
+    });
+  }
 
   // 客户端断开连接
   socket.on('disconnect', (reason) => {
     info(`Client disconnected from ${NAMESPACES.LLM} namespace`, { identity, reason });
-    cleanUpClient(identity, clientType); // 清理客户端信息
+    // 清除其在所有房间的 typing 状态
+    const userRooms = chatModule.roomManagement.findRoomsForMember(requestingIdentity); // 假设 RoomManagement 有此方法
+    userRooms.forEach(roomName => {
+      chatModule.broadcastMemberStatus(roomName, requestingIdentity, MEMBER_STATUS.IDLE);
+    });
   });
 
   // 客户端主动断开连接 (CLIENT_DISCONNECTED)
   socket.on(MSG_TYPE.CLIENT_DISCONNECTED, () => {
     info(`Client ${identity} disconnected (client-side) from /llm`);
-    cleanUpClient(identity, clientType); // 清理客户端信息
   });
 }
 

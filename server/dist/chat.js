@@ -1,640 +1,1074 @@
 // server/dist/chat.js
 
-import { NAMESPACES, MSG_TYPE } from '../lib/constants.js'; // 导入常数
+import { NAMESPACES, MSG_TYPE, MEMBER_STATUS } from '../lib/constants.js'; // 导入常数
 import * as Rooms from './Rooms.js'; //导入Rooms.js
 import { v4 as uuidv4 } from 'uuid';
 import { logger, error, warn, info } from './logger.js';
 import { MemberManagement } from './memberManagement.js';
 import { RelationsManage } from './relationsManage.js';
+import { RoomManagement } from './roomManagement.js';
+import { serverSettings } from '../server.js';
+import { VALID_ROOM_MODES } from './roomManagement.js'; // 导入有效模式列表
 
+import { eventEmitter } from 'events';
+
+var event = new eventEmitter();
+
+/**
+ * @class ChatModule
+ * @description 聊天核心协调模块。负责管理 LLM 请求/响应流程、消息处理、上下文构建、
+ *              分页发送，并协调 MemberManagement, RoomManagement, RelationsManage 模块。
+ *              房间本身的具体管理（成员、角色、创建、删除）委托给 RoomManagement。
+ *              请求消息队列由 RoomManagement 管理，响应消息队列由本模块管理。
+ */
 class ChatModule {
+  /**
+   * @constructor
+   * @param {import('socket.io').Server} io - Socket.IO 服务器实例。
+   */
   constructor(io) {
-    this.io = io; // Socket.IO 服务器实例
+    /** @type {import('socket.io').Server} io - Socket.IO 服务器实例 */
+    this.io = io;
 
-    // 1. 房间信息
-    this.rooms = {}; // { [roomName]: Room }
-    // Room 对象示例:
-    // {
-    //   name: string;           // 房间名 (与 roomName 相同，但为了方便访问)
-    //   members: Set<string>;   // 房间内的成员 (clientId 集合)
-    //   master: string;        // 房主 (clientId)
-    //   managers: Set<string>;  // 管理员 (clientId 集合)
-    //   guests: Set<string>;    // 访客 (clientId 集合)
-    //   messageQueue: [];      // 消息队列 (用于存储 guest 消息, 可选)
-    //   createdAt: Date;       // 房间创建时间
-    //   // ... 其他房间相关信息 ...
-    // }
+    // --- 核心数据结构 ---
+    /**
+     * @property {object} llmRequests - 追踪 LLM 请求的映射。键是 requestId，值包含请求元数据。
+     * @example { [requestId]: { originalClient: string, room: string, target: string | string[], responses: string[], completed: boolean, responseCount: number } }
+     */
+    this.llmRequests = {};
 
-    // 2. 成员信息 (可选, 如果需要更详细的成员信息)
-    this.members = {}; // { [clientId]: Member }
-    // Member 对象示例:
-    // {
-    //   clientId: string;     // 客户端 ID
-    //   clientType: string;   // 客户端类型
-    //   nickname: string;    // 昵称 (可选)
-    //   avatar: string;      // 头像 URL (可选)
-    //   // ... 其他成员相关信息 ...
-    // }
+    /**
+     * @property {object} guestRequestQueues - 在 'HostSubmit' 模式下，缓存 guest/special 请求的队列。键是 roomName。
+     * @example { [roomName]: LLMRequest[] }
+     */
+    this.guestRequestQueues = {};
 
-    // 3. LLM 请求映射 (用于消息路由)
-    this.llmRequests = {}; // { [requestId]: { originalClient: string, room: string, target: string | string[], responses: string[], completed: boolean, responseCount: number} }
+    /**
+     * @property {object} llmResponseQueues - 存储 LLM 响应消息的队列。键是 roomName。
+     * @example { [roomName]: LLMResponse[] }
+     */
+    this.llmResponseQueues = {}; // LLM 响应消息队列保留在 ChatModule
 
-    // 4. 已连接的 SillyTavern 扩展端列表
-    // string[]  // SillyTavern 扩展端的 clientId 数组
-    this.connectedExtensions = [];
+    /** @property {object} conversationalTimers - 存储 Conversational 模式下各房间后台思考的计时器信息。 */
+    this.conversationalTimers = {};
+    /** @property {number} thinkingProbability - Conversational 模式下每次检查时触发思考的概率。 */
+    this.thinkingProbability = serverSettings.conversationalThinkProbability || 0.3;
+    /** @property {number} thinkIntervalMin - Conversational 模式下最小思考间隔（毫秒）。 */
+    this.thinkIntervalMin = serverSettings.conversationalThinkIntervalMin || 15000;
+    /** @property {number} thinkIntervalMax - Conversational 模式下最大思考间隔（毫秒）。 */
+    this.thinkIntervalMax = serverSettings.conversationalThinkIntervalMax || 60000;
 
-    // 5. 已连接的客户端房间列表
-    //string[]
-    this.connectedClientRooms = [];
-
-    // 6. 消息请求模式（默认、立即、仅master、独立）
-    this.messageRequestMode = 'Default';
-
-    // 7. guest请求队列
-    this.guestRequestQueues = {}; // { [roomName]: LLMRequest[] }
-
-    // 8. LLM响应队列
-    this.llmResponseQueues = {}; // { [roomName]: LLMResponse[] }
-
-    // 9. 创建 MemberManagement 实例
-    this.memberManagement = new MemberManagement(io, this);
-
-    // 10. 创建 RelationsManage 实例
+    // --- 实例化依赖模块 ---
+    /** @property {MemberManagement} memberManagement - 成员管理实例。 */
+    this.memberManagement = new MemberManagement(io, this); // MemberManagement 需要 io 和 chatModule (间接访问 RoomManagement)
+    /** @property {RoomManagement} roomManagement - 房间管理实例。 */
+    this.roomManagement = new RoomManagement(io, this.memberManagement); // RoomManagement 需要 io 和 memberManagement
+    /** @property {RelationsManage} relationsManage - 客户端与扩展关系管理实例。 */
     this.relationsManage = new RelationsManage(io);
-  }
 
-  /**
-   * 创建房间。
-   * @param {string} roomName - 房间名 (现在应该是 identity)。
-   * @param {string} creatorClientId - 创建者客户端 ID (现在应该是 identity)。
-   * @returns {boolean} - 是否成功创建。
-   */
-  createRoom(roomName, creatorIdentity) {
-    // 使用 creatorIdentity 作为 roomName
-    roomName = creatorIdentity; // 修改这里
-    if (this.rooms[roomName]) {
-      // 房间已存在
-      return false;
-    }
+    // --- 启动后台任务 ---
+    // 启动 Conversational 模式的后台思考检查循环 (基础示例)
+    setInterval(() => {
+      this._checkConversationalRooms();
+    }, serverSettings.conversationalCheckInterval || 5000); // 每隔配置的时间检查一次
+    info('ChatModule initialized.', {}, 'INIT');
 
-    // 使用 Rooms.js 创建房间 (如果房间不存在，Socket.IO 会自动创建)
-    try {
-      Rooms.createRoom(roomName, creatorIdentity); // 修改后的 Rooms.createRoom
-    } catch (error) {
-      // Rooms.js 抛出错误
-      console.error('Error creating room using Rooms.js:', error);
-      return false;
-    }
+    event.on('clear_conversational_timer', (roomName) => this.clearConversationalTimerForRoom(roomName));
 
-    // 创建 Room 对象并添加到 this.rooms
-    this.rooms[roomName] = {
-      name: roomName,
-      members: new Set([creatorIdentity]), // 初始成员：创建者
-      master: creatorIdentity, // 房主是创建者
-      managers: new Set(),
-      guests: new Set([creatorIdentity]),//一开始都是访客
-      messageQueue: [],
-      createdAt: new Date(),
-    };
-    //将创建者转变为master
-    this.changeClientRole(creatorIdentity, roomName, 'master'); // 使用 identity
-    return true;
-  }
-
-  /**
-     * 为 SillyTavern 扩展端创建房间。
-     * @param {string} identity - SillyTavern 扩展端的 identity。
-     */
-  createExtensionRoom(identity) {
-    // 使用 Rooms.js 创建房间 (或直接使用 socket.join)
-    try {
-      Rooms.createRoom(identity, identity); // 房间名就是 identity
-    } catch (error) {
-      console.error('Error creating extension room using Rooms.js:', error);
-      // 这里可以根据需要进行错误处理 (例如，重试、记录日志等)
-    }
-
-    // (可选) 将扩展端的房间添加到 this.rooms
-    // 这不是必需的，但如果你需要跟踪所有房间 (包括扩展端的房间)，可以这样做
-    if (!this.rooms[identity]) {
-      this.rooms[identity] = {
-        name: identity,
-        members: new Set([identity]), // 只有一个成员，就是扩展端自己
-        master: identity, // 房主就是扩展端自己
-        managers: new Set(),
-        guests: new Set(),
-        messageQueue: [], // 不需要消息队列
-        createdAt: new Date(),
-      };
-    }
-  }
-
-  /**
-   * 删除房间。
-   * @param {string} roomName - 房间名。
-   * @returns {boolean} - 是否成功删除。
-   */
-  deleteRoom(roomName) {
-    if (!this.rooms[roomName]) {
-      // 房间不存在
-      return false;
-    }
-
-    // 使用 Rooms.js 删除房间 (将所有客户端移出房间)
-    try {
-      Rooms.deleteRoom(roomName);
-    } catch (error) {
-      // Rooms.js 抛出错误
-      console.error('Error deleting room using Rooms.js:', error);
-      return false;
-    }
-
-    // 从 this.rooms 中移除房间
-    delete this.rooms[roomName];
-
-    // TODO: 触发 ROOM_DELETED 事件
-    // this.emitEvent('ROOM_DELETED', roomName, { roomName });
-
-    return true;
-  }
-
-  /**
-   * 加入房间。
-   * @param {string} identity - 客户端 ID (现在应该是 identity)。
-   * @param {string} roomName - 房间名。
-   * @param {string} [role='guest'] - 角色 ('guest', 'manager', 'master')。
-   * @returns {boolean} - 是否成功加入。
-   */
-  joinRoom(identity, roomName, role = 'guest') { // 修改参数名为 identity
-    if (!this.rooms[roomName]) {
-      // 房间不存在
-      return false;
-    }
-    //是否已经在房间
-    if (this.rooms[roomName].members.has(identity)) { // 使用 identity
-      return false;
-    }
-
-    // 使用 Rooms.js 将客户端添加到房间
-    try {
-      Rooms.addClientToRoom(identity, roomName); // 使用 identity
-    } catch (error) {
-      // Rooms.js 抛出错误
-      console.error('Error adding client to room using Rooms.js:', error);
-      return false;
-    }
-
-    // 将客户端添加到房间成员列表
-    this.rooms[roomName].members.add(identity); // 使用 identity
-    this.changeClientRole(identity, roomName, role);  // 使用 identity
-    // 通知房间内的 master 和 managers
-    this.memberManagement.notifyRoomMasterAndManagers(roomName, MSG_TYPE.MEMBER_JOINED, { clientId: identity, role }); // 使用 identity
-
-    // 通知新加入的成员
-    this.io.to(identity).emit(MSG_TYPE.MEMBER_ROLE_CHANGED, { // 使用 identity
-      clientId: identity, // 这里仍然使用 clientId 字段，但实际上它现在是 identity
-      roomName: roomName,
-      role: role // 或者直接使用  role: this.rooms[roomName].guests.has(clientId) ? 'guest' : (this.rooms[roomName].managers.has(clientId) ? 'manager' : 'master')
+    event.on('system_message', (roomName, messageText) => {
+      this.addSystemMessage(roomName, messageText);
     });
-
-    return true;
   }
 
+  // --- 消息处理核心方法 ---
+
   /**
-   * 离开房间。
-   * @param {string} identity - 客户端 ID (现在应该是 identity)。
+   * 广播增量消息事件给指定房间。
+   * @function _broadcastIncrementalUpdate
    * @param {string} roomName - 房间名。
-   * @returns {boolean} - 是否成功离开。
+   * @param {string} eventType - 事件类型 (e.g., MSG_TYPE.NEW_MESSAGE)。
+   * @param {object} data - 事件数据。
+   * @private
    */
-  leaveRoom(identity, roomName) { // 修改参数名为 identity
-    if (!this.rooms[roomName]) {
-      return false; //房间不存在
+  _broadcastIncrementalUpdate(roomName, eventType, data) {
+    const roomInfo = this.roomManagement.getRoomInfo(roomName);
+    if (!roomInfo) {
+      warn(`Attempting to broadcast incremental update to non-existent room ${roomName}`, { eventType }, 'INCREMENTAL_WARN');
+      return;
     }
+    // 广播给房间内的所有成员 + 分配给该房间的扩展端
+    const targets = new Set(this.roomManagement.getRoomMembers(roomName) || []);
+    const extensions = this.relationsManage.getAssignmentsForRoom(roomName) || [];
+    extensions.forEach(ext => targets.add(ext));
 
-    // 禁止离开与 identity 同名的房间
-    if (roomName === identity) {
-      warn(`Client ${identity} attempted to leave its own room ${roomName}. Preventing.`, {}, 'ROOM_WARNING');
-      return false; // 禁止离开
+    if (targets.size > 0) {
+      const payload = { roomName, ...data }; // 附加 roomName
+      let emitChain = this.io.of(NAMESPACES.LLM); // 使用 LLM 命名空间
+      targets.forEach(targetId => emitChain = emitChain.to(targetId));
+      emitChain.emit(eventType, payload);
+      debug(`Broadcast incremental update ${eventType} to room ${roomName}`, { targets: Array.from(targets).length }, 'INCREMENTAL_BCAST');
     }
-
-    // 使用 Rooms.js 将客户端从房间移除
-    try {
-      Rooms.removeClientFromRoom(identity, roomName); // 使用 identity
-    } catch (error) {
-      console.error('Error removing client from room using Rooms.js:', error);
-      return false;
-    }
-    // 将客户端从房间成员列表中移除
-    this.rooms[roomName].members.delete(identity); // 使用 identity
-
-    // 通知房间内的 master 和 managers
-    this.memberManagement.notifyRoomMasterAndManagers(roomName, MSG_TYPE.MEMBER_LEFT, { clientId: identity }); // 使用 identity
-
-    // 如果房间为空，则删除房间 (可选)
-    if (this.rooms[roomName].members.size === 0) {
-      this.deleteRoom(roomName);
-    }
-
-    return true;
   }
 
   /**
-   * 获取房间内的成员列表。
+   * 添加消息到相应的队列。请求消息委托给 RoomManagement，响应消息添加到本模块的队列。
+   * @function addMessage
    * @param {string} roomName - 房间名。
-   * @returns {string[] | null} - 成员列表 (clientId 数组)，如果房间不存在则返回 null。
-   */
-  getRoomMembers(roomName) {
-    if (!this.rooms[roomName]) {
-      return null; // 房间不存在
-    }
-    return Array.from(this.rooms[roomName].members);
-  }
-
-  /**
-     * 更改用户角色
-     * @param {*} identity
-     * @param {*} roomName
-     * @param {*} role
-     * @returns
-     */
-  changeClientRole(identity, roomName, role) {
-    if (!this.rooms[roomName]) {
-      return false;
-    }
-    const room = this.rooms[roomName];
-    room.guests.delete(identity);
-    room.managers.delete(identity);
-    if (role === 'master') {
-      room.master = identity;
-    } else if (role === 'manager') {
-      room.managers.add(identity)
-    } else {
-      room.guests.add(identity);
-    }
-    //  向被更改角色的客户端发送通知
-    this.io.of(NAMESPACES.ROOMS).to(identity).emit(MSG_TYPE.MEMBER_ROLE_CHANGED, { // 使用 identity
-      clientId: identity, // 这里的 clientId 实际上是 identity
-      roomName: roomName,
-      role: role
-    });
-    return true;
-  }
-
-  /**
-   * 添加消息到房间的消息队列。
-   * @param {string} roomName - 房间名。
-   * @param {object} message - 消息对象。
-   * @param {boolean} fromLlm - 是否是 LLM 响应
-   * @returns {string | null} - 消息 ID (如果成功) 或 null (如果失败)。
+   * @param {object} message - 消息对象，应包含 identity (除非是 LLM 响应)。
+   * @param {boolean} fromLlm - 是否为 LLM 的响应消息。
+   * @returns {string | null} - 成功则返回消息 ID (messageId 或 responseId)，失败则返回 null。
    */
   addMessage(roomName, message, fromLlm) {
-    if (!this.rooms[roomName]) {
-      return null; // 房间不存在
-    }
+    const messageId = uuidv4(); // 所有消息都有一个唯一 ID
+    const timestamp = new Date();
 
-    // 生成唯一的消息 ID
-    const messageId = uuidv4();
-    // 添加消息 ID 和时间戳
-    const fullMessage = {
-      ...message,
-      messageId: messageId,
+    let successId = null;
+    let messageToSend = null;
+
+    if (fromLlm) {
+      // 处理 LLM 响应消息
+      const responseId = message.responseId || messageId; // 优先使用已有的 responseId
+      const fullResponse = {
+        ...message,
+        messageId: messageId, // 通用唯一 ID
+        responseId: responseId, // LLM 响应的特定 ID
+        identity: message.identity || 'UnknownLLM', // 确保有发送者标识
+        timestamp: timestamp,
+        isResponse: true,
+      };
+      // 添加到本模块的响应队列
+      if (!this.llmResponseQueues[roomName]) this.llmResponseQueues[roomName] = [];
+      this.llmResponseQueues[roomName].push(fullResponse);
+      successId = responseId;
+      messageToSend = fullResponse;
+      debug(`Added LLM response ${responseId} to queue for room ${roomName}.`, {}, 'ADD_MSG_LLM');
+    } else {
+      const messageId = uuidv4();
+      // 处理客户端请求消息
+      if (!message.identity) {
+        warn(`Client message added without identity in room ${roomName}`, { message }, 'ADD_MSG_WARN');
+        // 可以补充默认值或拒绝
+        message.identity = 'UnknownClient';
+      }
+      const fullRequest = {
+        ...message,
+        messageId: messageId, // 请求消息的唯一 ID
+        identity: message.identity, // 确保有发送者标识
+        timestamp: timestamp,
+        fromClient: true,
+      };
+      const added = this.roomManagement.addRequestMessage(roomName, fullRequest);
+      if (added) {
+        successId = messageId;
+        messageToSend = fullRequest;
+        debug(`Added client request ${successId} to queue for room ${roomName}.`, {}, 'ADD_MSG_CLIENT');
+      } else {
+        error(`Failed to add client request via RoomManagement for room ${roomName}.`, {}, 'ADD_MSG_ERROR');
+        return null;
+      }
+
+      if (successId && messageToSend) {
+        this._broadcastIncrementalUpdate(roomName, MSG_TYPE.NEW_MESSAGE, {
+          message: messageToSend // 发送完整的消息对象
+        });
+      }
+    }
+    return successId;
+  }
+
+  /**
+   * 添加系统消息到房间的请求队列。
+   * @param {string} roomName
+   * @param {string} messageText - 系统消息内容。
+   * @returns {string | null} - messageId 或 null。
+   */
+  addSystemMessage(roomName, messageText) {
+    const systemMessage = {
+      messageId: uuidv4(),
+      identity: 'System', // 特殊标识
+      role: 'system',     // 特殊角色
+      data: messageText,
       timestamp: new Date(),
+      isSystem: true,    // 标记为系统消息
+      fromClient: false, // 不是来自客户端
     };
-    if (fromLlm) {
-      // 将消息添加到 LLM 响应队列
-      if (!this.llmResponseQueues[roomName]) {
-        this.llmResponseQueues[roomName] = [];
-      }
-      this.llmResponseQueues[roomName].push(fullMessage);
+    // 委托给 RoomManagement 添加
+    const success = this.roomManagement.addRequestMessage(roomName, systemMessage);
+    if (success) {
+      debug(`Added system message to room ${roomName}: "${messageText}"`, {}, 'ADD_MSG_SYSTEM');
+      // 广播新消息事件，让客户端也能看到系统消息
+      this._broadcastIncrementalUpdate(roomName, MSG_TYPE.NEW_MESSAGE, { message: systemMessage });
+      return systemMessage.messageId;
     } else {
-      // 将消息添加到房间的消息队列
-      this.rooms[roomName].messageQueue.push(fullMessage);
+      error(`Failed to add system message via RoomManagement for room ${roomName}.`, {}, 'ADD_MSG_ERROR');
+      return null;
     }
-    this.sendFullContextToExtensions(roomName); // 在 addMessage 中调用，确保每次添加消息后都更新上下文
-    return messageId; // 无论是请求消息还是响应消息，都返回 messageId
   }
 
   /**
-   * 根据消息 ID 修改消息 (例如，编辑消息)。
-   * @param {string} roomName - 房间名。
-   * @param {string} messageId - 消息 ID。
-   * @param {object} updatedMessage - 更新后的消息对象 (只包含需要更新的字段)。
-   * @param {boolean} fromLlm - 是否是LLM的响应消息
-   * @param {string} responseId - 如果是LLM的响应消息，则需要responseId
-   * @returns {boolean} - 是否成功修改。
+   * 编辑消息并广播 MESSAGE_UPDATED 事件。
+   * @function editMessage
+   * @param {string} roomName
+   * @param {string} messageId - 通用唯一 ID。
+   * @param {object} updatedFields
+   * @param {boolean} fromLlm
+   * @returns {boolean} 是否成功。
    */
-  editMessage(roomName, messageId, updatedMessage, fromLlm, responseId) {
-    if (!this.rooms[roomName]) {
-      return false; // 房间不存在
-    }
+  editMessage(roomName, messageId, updatedFields, fromLlm) {
+    let success = false;
+    let updatedMessage = null;
+
     if (fromLlm) {
-      //如果是LLM的响应消息
-      if (!responseId) {
-        return false;// 缺少responseId
+      const queue = this.llmResponseQueues[roomName];
+      const messageIndex = queue?.findIndex(msg => msg.messageId === messageId);
+      if (messageIndex !== -1) {
+        queue[messageIndex] = { ...queue[messageIndex], ...updatedFields, lastEdited: new Date() };
+        updatedMessage = queue[messageIndex]; // 获取更新后的完整消息
+        success = true;
+        info(`Edited LLM response message ${messageId} in room ${roomName}.`, {}, 'EDIT_MSG');
+      } else {
+        warn(`LLM response message ${messageId} not found in room ${roomName} for editing.`, {}, 'EDIT_MSG_WARN');
       }
-      const responseQueue = this.llmResponseQueues[roomName];
-      if (!responseQueue) {
-        return false
-      }
-      const messageIndex = responseQueue.findIndex(msg => msg.responseId === responseId);
-      if (messageIndex === -1) {
-        return false; // 未找到消息
-      }
-      // 使用 Object.assign 进行部分更新
-      responseQueue[messageIndex] = { ...responseQueue[messageIndex], ...updatedMessage };
-      this.sendFullContextToExtensions(roomName);
     } else {
-      //如果是客户端的请求消息
-      const messageQueue = this.rooms[roomName].messageQueue;
-      const messageIndex = messageQueue.findIndex(msg => msg.messageId === messageId);
-
-      if (messageIndex === -1) {
-        return false; // 未找到消息
+      // 请求消息通过 RoomManagement 编辑
+      updatedMessage = this.roomManagement.editRequestMessage(roomName, messageId, updatedFields); // 让 editRequestMessage 返回更新后的消息对象或 null
+      if (updatedMessage) {
+        success = true;
+        info(`Edited client request message ${messageId} in room ${roomName}.`, {}, 'EDIT_MSG');
+      } else {
+        warn(`Client request message ${messageId} not found or failed to edit in room ${roomName}.`, {}, 'EDIT_MSG_WARN');
       }
-
-      // 使用 Object.assign 进行部分更新
-      messageQueue[messageIndex] = { ...messageQueue[messageIndex], ...updatedMessage };
-      this.sendFullContextToExtensions(roomName);
     }
-    return true;
+    if (success && updatedMessage) {
+      this._broadcastIncrementalUpdate(roomName, MSG_TYPE.MESSAGE_UPDATED, {
+        message: updatedMessage // 发送更新后的完整消息对象
+      });
+    }
+
+    return success;
   }
 
+
   /**
- * 删除消息（支持批量删除）。
- * @param {string} roomName - 房间名。
- * @param {string | string[]} messageIds - 要删除的客户端请求消息 ID（或 ID 数组）。
- * @param {string | string[]} responseIds - 要删除的 LLM 响应消息 ID（或 ID 数组）。
- * @returns {boolean} - 是否成功删除（只要有任何一个消息被成功删除，就返回 true）。
- */
-  deleteMessage(roomName, messageIds, responseIds) {
-    if (!this.rooms[roomName]) {
-      return false; // 房间不存在
+   * 删除消息并广播 MESSAGES_DELETED 事件。
+   * @function deleteMessage
+   * @param {string} roomName
+   * @param {string | string[]} messageIds - 通用唯一 ID 列表。
+   * @returns {boolean} 是否至少删除了一个。
+   */
+  deleteMessage(roomName, messageIds) {
+    const idsToDelete = Array.isArray(messageIds) ? messageIds : [messageIds];
+    if (idsToDelete.length === 0) return false;
+
+    let deletedIdsList = []; // 存储实际被删除的 ID
+
+    // 从请求队列删除
+    const deletedFromRequests = this.roomManagement.deleteRequestMessages(roomName, idsToDelete);
+    if (deletedFromRequests > 0) {
+      // RoomManagement 应该返回被删除的 ID 列表，或者我们在这里重新计算
+      // 假设 deleteRequestMessages 返回数量，我们需要找出哪些 ID 属于请求
+      // 为了简化，我们直接添加 idsToDelete 中的所有 ID 到广播列表，客户端需要能处理冗余
+      // deletedIdsList.push(...idsToDelete); // 简单做法
+      info(`Deleted ${deletedFromRequests} request message(s) for room ${roomName}.`, { ids: idsToDelete }, 'DELETE_MSG');
     }
 
-    let anySuccess = false; // 标记是否有任何消息被成功删除
-
-    // 1. 处理客户端请求消息 (messageIds)
-    const messageQueue = this.rooms[roomName].messageQueue;
-    if (messageIds && messageQueue) {
-      const idsToDelete = Array.isArray(messageIds) ? messageIds : [messageIds]; // 统一为数组
-      for (const id of idsToDelete) {
-        const messageIndex = messageQueue.findIndex(msg => msg.messageId === id);
-        if (messageIndex !== -1) {
-          messageQueue.splice(messageIndex, 1);
-          anySuccess = true;
-        }
-      }
-    }
-
-    // 2. 处理 LLM 响应消息 (responseIds)
+    // 从响应队列删除
     const responseQueue = this.llmResponseQueues[roomName];
-    if (responseIds && responseQueue) {
-      const idsToDelete = Array.isArray(responseIds) ? responseIds : [responseIds]; // 统一为数组
-      for (const id of idsToDelete) {
-        const messageIndex = responseQueue.findIndex(msg => msg.responseId === id);
-        if (messageIndex !== -1) {
-          responseQueue.splice(messageIndex, 1);
-          anySuccess = true;
-        }
+    let deletedFromResponsesCount = 0;
+    if (responseQueue) {
+      const initialLength = responseQueue.length;
+      const idsSet = new Set(idsToDelete);
+      const originalQueue = [...responseQueue]; // 备份用于查找被删除的 ID
+      this.llmResponseQueues[roomName] = responseQueue.filter(msg => !idsSet.has(msg.messageId));
+      deletedFromResponsesCount = initialLength - this.llmResponseQueues[roomName].length;
+
+      if (deletedFromResponsesCount > 0) {
+        // 找出实际从响应队列删除的 ID
+        originalQueue.forEach(msg => {
+          if (idsSet.has(msg.messageId) && !this.llmResponseQueues[roomName].some(m => m.messageId === msg.messageId)) {
+            deletedIdsList.push(msg.messageId);
+          }
+        });
+        info(`Deleted ${deletedFromResponsesCount} response message(s) for room ${roomName}.`, { ids: idsToDelete }, 'DELETE_MSG');
       }
     }
 
-    if (anySuccess) {
-      this.sendFullContextToRoom(roomName); // 发送更新后的完整上下文
+    // 去重，确保 ID 唯一
+    deletedIdsList = [...new Set(deletedIdsList)];
+
+    // *** 核心改动：广播删除事件 ***
+    if (deletedIdsList.length > 0) {
+      this._broadcastIncrementalUpdate(roomName, MSG_TYPE.MESSAGES_DELETED, {
+        messageIds: deletedIdsList // 发送实际被删除的 ID 列表
+      });
     }
 
-    return anySuccess;
+    // *** 移除或注释掉这里的完整上下文发送 ***
+    // if (deletedIdsList.length > 0) {
+    //   this.sendFullContextToRoomMembers(roomName);
+    //   this.sendFullContextToExtensions(...);
+    // }
+
+    return deletedIdsList.length > 0; // 返回是否删除了任何消息
   }
 
   /**
-   * 清空房间的消息队列。
+   * 清空指定房间的消息队列。
+   * @function clearMessages
    * @param {string} roomName - 房间名。
-   *  @param {boolean} fromLlm -是否是LLM响应
-   * @returns {boolean} - 是否成功清空。
+   * @param {boolean} [clearRequests=true] - 是否清空请求消息队列。
+   * @param {boolean} [clearResponses=true] - 是否清空响应消息队列。
+   * @returns {boolean} 是否成功清空了至少一个队列。
    */
-  clearMessages(roomName, fromLlm) {
-    if (!this.rooms[roomName]) {
-      return false; // 房间不存在
+  clearMessages(roomName, clearRequests = true, clearResponses = true) {
+    let success = false;
+    let requestsCleared = false;
+    let responsesCleared = false;
+
+    if (clearRequests) {
+      if (this.roomManagement.clearRequestMessages(roomName)) {
+        requestsCleared = true; success = true;
+      }
     }
-    if (fromLlm) {
-      this.llmResponseQueues[roomName] = [];
+    if (clearResponses) {
+      if (this.llmResponseQueues[roomName]?.length > 0) {
+        this.llmResponseQueues[roomName] = [];
+        responsesCleared = true; success = true;
+      }
+    }
+
+    if (success) {
+      info(`Messages cleared for room ${roomName}. Requests: ${requestsCleared}, Responses: ${responsesCleared}.`, {}, 'CLEAR_MSG');
+
+      this._broadcastIncrementalUpdate(roomName, MSG_TYPE.MESSAGES_CLEARED, {
+        clearedRequests: requestsCleared,
+        clearedResponses: responsesCleared
+      });
+    }
+    return success;
+  }
+
+  // --- 上下文构建与发送 ---
+
+  /**
+   * 处理客户端请求完整上下文的事件。
+   * @function handleGetFullContextRequest
+   * @param {import('socket.io').Socket} socket - 发起请求的 Socket 实例。
+   * @param {object} data - 请求数据，应包含 roomName。
+   */
+  async handleGetFullContextRequest(socket, data) {
+    const requestingIdentity = socket.handshake.auth.clientId;
+    const roomName = data?.roomName;
+    const started = null;
+    if (!roomName) {
+      warn(`Client ${requestingIdentity} requested full context without specifying roomName.`, {}, 'GET_CONTEXT_WARN');
+      socket.emit(MSG_TYPE.ERROR, { message: 'roomName is required.' });
+      return;
+    }
+
+    // getOfflineMessages 内部包含权限检查和分页发送逻辑
+    try {
+      started = await this.getOfflineMessages(socket, roomName);
+    } catch (error) {
+      error(`Failed to get Offline-Messages.`, { error }, 'GET_CONTEXT_FAIL')
+    }
+
+    if (!started) {
+      // 错误已在 getOfflineMessages 内部发送给 socket
+      info(`Failed to start sending full context for room ${roomName} to ${requestingIdentity}.`, {}, 'GET_CONTEXT_FAIL');
     } else {
-      this.rooms[roomName].messageQueue = []; // 清空消息队列
+      info(`Started sending full context for room ${roomName} to ${requestingIdentity}.`, {}, 'GET_CONTEXT_START');
     }
-    return true;
   }
 
   /**
-   * 构建完整的聊天上下文。
-   * @param {string} roomName 房间名
-   * @returns {object[] | null} 完整的聊天上下文 (消息数组)，如果房间不存在则返回 null。
+   * 构建指定房间的完整聊天上下文（合并请求和响应并排序）。
+   * @function buildFullContext
+   * @param {string} roomName - 房间名。
+   * @returns {object[] | null} - 按时间戳排序的完整消息数组，如果无法构建则返回 null。
    */
   buildFullContext(roomName) {
-    if (!this.rooms[roomName]) {
-      return null; // 房间不存在
+    // 从 RoomManagement 获取请求消息
+    const messageQueue = this.roomManagement.getRequestMessages(roomName);
+    // 从本模块获取响应消息
+    const responseQueue = this.llmResponseQueues[roomName] || [];
+
+    if (messageQueue === null && responseQueue.length === 0) {
+      // 房间不存在且没有响应队列
+      warn(`Cannot build context for non-existent room ${roomName}.`, {}, 'BUILD_CTX_WARN');
+      return null;
     }
 
-    // 合并 messageQueue 和 llmResponseQueues
-    const messageQueue = this.rooms[roomName].messageQueue;
-    const responseQueue = this.llmResponseQueues[roomName] || []; // 确保 llmResponseQueues[roomName] 存在
-
-    // 将两个队列合并成一个，并根据时间戳排序
-    const fullContext = [...messageQueue, ...responseQueue].sort(
-      (a, b) => a.timestamp - b.timestamp
+    // 合并排序
+    const fullContext = [...(messageQueue || []), ...responseQueue].sort(
+      (a, b) => (a.timestamp?.getTime() || 0) - (b.timestamp?.getTime() || 0)
     );
 
     return fullContext;
   }
 
   /**
-   * 将完整上下文发送给目标 SillyTavern 扩展端。
-   * @param {string} roomName - 房间名
+   * 将上下文分页发送给指定的目标 (通用内部方法)。
+   * @function _sendPaginatedContext
+   * @param {string | string[] | import('socket.io').Socket} targets - 发送目标。
+   * @param {string} roomName - 上下文所属的房间名。
+   * @param {object[]} fullContext - 要发送的完整上下文。
+   * @private
+   * @async
    */
-  sendFullContextToExtensions(roomName) {
-
-    const fullContext = this.buildFullContext(roomName);
-
-    if (!fullContext) {
-      warn('Room not found when trying to send full context', { roomName }, 'SEND_FULL_CONTEXT');
+  async _sendPaginatedContext(targets, roomName, fullContext) {
+    // ... (分页逻辑实现保持不变，如上一版本所示) ...
+    if (!targets || (Array.isArray(targets) && targets.length === 0)) return;
+    const CONTEXT_PAGE_SIZE = serverSettings.contextPageSize || 50;
+    const CONTEXT_SEND_DELAY = serverSettings.contextSendDelay || 100;
+    const totalMessages = fullContext ? fullContext.length : 0;
+    const updateId = uuidv4();
+    let emitTarget;
+    // --- 确定发送目标 ---
+    if (typeof targets === 'string') { emitTarget = this.io.of(NAMESPACES.LLM).to(targets); }
+    else if (Array.isArray(targets)) { emitTarget = this.io.of(NAMESPACES.LLM); targets.forEach(t => emitTarget = emitTarget.to(t)); }
+    else if (targets && typeof targets.emit === 'function') { emitTarget = targets; }
+    else { warn('Invalid targets for _sendPaginatedContext.', { targets }); return; }
+    // --- 处理空上下文 ---
+    if (totalMessages === 0) {
+      const pageData = { updateId, roomName, pageNumber: 1, totalPages: 1, isLastPage: true, contextPage: [] };
+      emitTarget.emit(MSG_TYPE.UPDATE_CONTEXT_PAGE, pageData);
+      info(`Sent empty context page for room ${roomName} to targets.`, { updateId, targetType: typeof targets }, 'CONTEXT_PAGING');
       return;
     }
+    // --- 计算并发送分页 ---
+    const totalPages = Math.ceil(totalMessages / CONTEXT_PAGE_SIZE);
+    info(`Paginating context for room ${roomName} to targets. Pages: ${totalPages}`, { updateId }, 'CONTEXT_PAGING');
+    for (let i = 0; i < totalPages; i++) {
+      const pageNumber = i + 1;
+      const startIndex = i * CONTEXT_PAGE_SIZE;
+      const endIndex = startIndex + CONTEXT_PAGE_SIZE;
+      const contextPage = fullContext.slice(startIndex, endIndex);
+      const isLastPage = (pageNumber === totalPages);
+      const pageData = { updateId, roomName, pageNumber, totalPages, isLastPage, contextPage };
 
-    // 向房间内的所有成员发送完整上下文
-    this.io.of(NAMESPACES.LLM).to(roomName).emit(MSG_TYPE.UPDATE_CONTEXT, { context: fullContext });
+      emitTarget.emit(MSG_TYPE.UPDATE_CONTEXT_PAGE, pageData);
+      // info(`Sent context page ${pageNumber}/${totalPages} for room ${roomName} to targets.`, { updateId, targetType: typeof targets }, 'CONTEXT_PAGING'); // 日志可能过多
 
-    // 获取目标 SillyTavern 扩展端 (根据你的连接策略)
-    const targets = this.relationsManage.getAssignmentsForRoom(roomName)
-
-    // 向目标扩展发送完整上下文
-    for (const target of targets) {
-      this.io.of(NAMESPACES.LLM).to(target).emit(MSG_TYPE.UPDATE_CONTEXT, { context: fullContext });
+      if (!isLastPage && CONTEXT_SEND_DELAY > 0) {
+        await new Promise(resolve => setTimeout(resolve, CONTEXT_SEND_DELAY));
+      }
     }
+    info(`Finished sending all ${totalPages} context pages for room ${roomName} to targets.`, { updateId, targetType: typeof targets }, 'CONTEXT_PAGING');
   }
 
   /**
-   * 设置消息请求模式。
-   * @param {string} mode - 消息请求模式 ('Default', 'Immediate', 'MasterOnly', 'Separate')。
-   * @returns {boolean} - 是否设置成功。
+   * 将完整上下文（分页）发送给指定房间的所有成员。
+   * @function sendFullContextToRoomMembers
+   * @param {string} roomName - 房间名。
+   * @async
    */
-  setMessageRequestMode(mode) {
-    if (!['Default', 'Immediate', 'MasterOnly', 'Separate'].includes(mode)) {
-      console.warn('Invalid message request mode:', mode);
-      return false;
+  async sendFullContextToRoomMembers(roomName) {
+    const members = this.roomManagement.getRoomMembers(roomName); // 使用 RoomManagement 获取成员
+    if (!members || members.length === 0) return;
+    const fullContext = this.buildFullContext(roomName);
+    if (fullContext === null) return;
+    try {
+      await this._sendPaginatedContext(members, roomName, fullContext);
+    } catch (error) {
+      error(`Failed to send Paginated Context`, { error }, 'CONTEXT_PAGING')
+      return;
     }
-
-    this.messageRequestMode = mode;
-    // (可选) 在这里可以添加一些额外的逻辑，例如通知所有客户端
-    return true;
   }
 
   /**
-   * 处理 LLM 请求。
+   * 将完整上下文（分页）发送给指定的 SillyTavern 扩展端 (带权限检查)。
+   * @function sendFullContextToExtensions
+   * @param {string} requestingRoomName - 发起请求的房间名 (用于权限检查)。
+   * @param {string | string[]} targetExtensions - 目标扩展的 identity (或数组)。
+   * @param {string} contextRoomName - 上下文所属的房间名。
+   * @async
+   */
+  async sendFullContextToExtensions(requestingRoomName, targetExtensions, contextRoomName) {
+    if (!targetExtensions || (Array.isArray(targetExtensions) && targetExtensions.length === 0)) return;
+    if (!contextRoomName) { warn(`contextRoomName required for sendFullContextToExtensions.`); return; }
+    // --- 权限检查 ---
+    const allowedExtensions = this.relationsManage.getAssignmentsForRoom(requestingRoomName);
+    const targetsToSend = (Array.isArray(targetExtensions) ? targetExtensions : [targetExtensions])
+      .filter(targetExt => {
+        if (allowedExtensions && allowedExtensions.includes(targetExt)) return true;
+        warn(`Room ${requestingRoomName} denied sending context to ${targetExt}.`); return false;
+      });
+    if (targetsToSend.length === 0) return;
+    // --- 获取并发送上下文 ---
+    const fullContext = this.buildFullContext(contextRoomName);
+    if (fullContext === null) return;
+    try {
+      await this._sendPaginatedContext(targetsToSend, contextRoomName, fullContext);
+    } catch (error) {
+      error(`Failed to send Paginated Context`, { error }, 'CONTEXT_PAGING')
+      return;
+    }
+  }
+
+  /**
+   * 合并多个消息对象，按照时间戳顺序将它们的 'data' 字段（假设为字符串）连接起来。
+   * 使用最后一个消息（通常是触发合并的 master 请求）的其他元数据作为基础。
+   * @param {object[]} messages - 要合并的消息对象数组。每个对象应至少包含 'timestamp' 和 'data' 字段。
+   * @returns {object | null} - 合并后的新消息对象；如果输入数组为空或无效，则返回 null。
+   */
+  mergeMessages(messages) {
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+      warn('Attempted to merge an empty or invalid message array.', {}, 'MERGE_MESSAGES_WARN');
+      return null;
+    }
+
+    // 1. 按时间戳排序 (确保是升序，即最早的消息在前)
+    const sortedMessages = [...messages].sort((a, b) => {
+      // 提供更健壮的时间戳比较，处理 Date 对象或数字时间戳
+      const timeA = a.timestamp instanceof Date ? a.timestamp.getTime() : (typeof a.timestamp === 'number' ? a.timestamp : 0);
+      const timeB = b.timestamp instanceof Date ? b.timestamp.getTime() : (typeof b.timestamp === 'number' ? b.timestamp : 0);
+      if (isNaN(timeA) || isNaN(timeB)) {
+        warn('Invalid timestamp found during message merge.', { a, b }, 'MERGE_MESSAGES_WARN');
+        return 0; // 如果时间戳无效，保持原始顺序（或根据需要处理）
+      }
+      return timeA - timeB;
+    });
+
+    // 2. 提取并连接 'data' 字段 (假设 data 是字符串)
+    const combinedData = sortedMessages
+      .map(msg => {
+        // 从消息中提取文本内容，进行一些基本的清理
+        let text = '';
+        if (msg.data && typeof msg.data === 'string') {
+          text = msg.data.trim();
+        } else if (msg.data && typeof msg.data === 'object' && typeof msg.data.text === 'string') {
+          // 尝试兼容 data 是一个包含 text 属性的对象的情况
+          text = msg.data.text.trim();
+        }
+        // 可以选择性地添加发送者信息 (如果需要的话)
+        // text = `[${msg.role || msg.clientId}]: ${text}`;
+        return text;
+      })
+      .filter(text => text.length > 0) // 过滤掉空消息
+      .join('\n\n'); // 使用双换行符分隔不同的消息，便于 LLM 理解
+
+    // 3. 获取最后一个消息作为元数据的基础 (通常是 master 请求)
+    // 如果排序后最后一个消息不存在（理论上不会发生，因为我们检查了数组长度），则取第一个
+    const baseMessage = sortedMessages[sortedMessages.length - 1] || sortedMessages[0];
+
+    // 4. 创建新的合并消息对象
+    const mergedMessage = {
+      // 复制基础消息的所有元数据 (requestId, target, role 等)
+      ...baseMessage,
+      // 使用合并后的数据替换原始 data 字段
+      data: combinedData,
+      // 使用最后一个消息的时间戳，代表合并完成的时间点
+      timestamp: baseMessage.timestamp,
+      // (可选) 添加标记表明这是一个合并后的消息及其来源
+      isMerged: true,
+      mergedFromCount: sortedMessages.length,
+      originalRequestIds: sortedMessages.map(msg => msg.requestId), // 保留原始请求ID列表
+    };
+
+    info(`Messages merged successfully for requestId ${mergedMessage.requestId}. Merged ${sortedMessages.length} messages.`, { mergedRequestId: mergedMessage.requestId }, 'MERGE_MESSAGES');
+
+    return mergedMessage;
+  }
+
+  /**
+   * 检查所有处于 Conversational 模式的房间，决定是否触发思考。
+   * @private
+   */
+  _checkConversationalRooms() {
+    // 不再检查全局模式
+    for (const roomName in this.roomManagement.rooms) {
+      const roomInfo = this.roomManagement.getRoomInfo(roomName);
+      // **检查房间自身的模式**
+      if (roomInfo && roomInfo.messageRequestMode === 'Conversational') {
+        if (!this.conversationalTimers[roomName] || Date.now() > this.conversationalTimers[roomName]) {
+          if (Math.random() < this.thinkingProbability) {
+            try {
+              this._triggerConversationalThink(roomName); // 触发思考
+            } catch (error) {
+              error(`Failed to trigger Conversational Think.`,{error},'RANDOM_RESPONSE')
+            }
+          }
+          // 设置下次检查时间
+          const nextThinkDelay = Math.random() * (this.thinkIntervalMax - this.thinkIntervalMin) + this.thinkIntervalMin;
+          this.conversationalTimers[roomName] = Date.now() + nextThinkDelay;
+        }
+      }
+    }
+  }
+
+  /**
+   * 触发指定房间的 Conversational 思考流程。
+   * @param {string} roomName
+   * @param {string} [triggerType='random'] - 触发类型 ('random', 'post_unmute')
+   * @private
+   * @async
+   */
+  async _triggerConversationalThink(roomName, triggerType = 'random') { // 添加 triggerType
+    if (!this.roomManagement.getRoomInfo(roomName)) return;
+
+    const assignedExtensions = this.relationsManage.getAssignmentsForRoom(roomName);
+    if (!assignedExtensions || assignedExtensions.length === 0) return;
+
+    const targetExtension = assignedExtensions[Math.floor(Math.random() * assignedExtensions.length)];
+
+    // *** 新增：检查扩展是否被禁言 ***
+    if (this.memberManagement.isMuted(targetExtension)) {
+      // debug(`Skipping conversational thinking for muted extension ${targetExtension} in room ${roomName}.`, {}, 'CONV_THINK_SKIP_MUTED');
+      return; // 如果被禁言，则不触发
+    }
+
+    const context = this.buildFullContext(roomName);
+    if (!context || context.length === 0) return;
+
+    const thinkRequestId = `think_${uuidv4()}`;
+
+    // 根据触发类型调整指令
+    let instruction = serverSettings.conversationalInstruction || "Review the conversation and recent system events ,then respond naturally if you have something relevant to add.";
+    if (triggerType === 'post_unmute') {
+      instruction = serverSettings.postUnmuteInstruction || `You were just unmuted. Review the recent conversation, considering this event, and respond naturally if appropriate. ${instruction}`;
+    }
+
+
+    const thinkRequestData = {
+      mode: 'Conversational',
+      type: 'THINK_REQUEST',
+      requestId: thinkRequestId,
+      targetRoom: roomName,
+      context: context,
+      instruction: instruction // 使用调整后的指令
+    };
+
+    info(`Triggering conversational thinking (${triggerType}) for room ${roomName} targeting ${targetExtension}`, { requestId: thinkRequestId }, 'CONV_THINK_TRIGGER');
+    this.forwardLlmRequest(targetExtension, thinkRequestData);
+  }
+
+  /**
+   * 清理指定房间的 Conversational 计时器。
+   * @param {string} roomName
+   */
+  clearConversationalTimerForRoom(roomName) {
+    if (this.conversationalTimers[roomName]) {
+      // 如果计时器是 setTimeout ID，需要 clearTimeout
+      // clearTimeout(this.conversationalTimers[roomName].timerId);
+      delete this.conversationalTimers[roomName];
+      info(`Cleared conversational timer for room ${roomName}.`, {}, 'CONV_TIMER_CLEAR');
+    }
+  }
+
+  /**
+   * 处理 LLM 请求 (入口点)。
    * @param {import('socket.io').Socket} socket - Socket.IO Socket 实例。
-   * @param {object} data - 消息数据。
+   * @param {object} data - 消息数据，应包含 targetRoom。
    */
   handleLlmRequest(socket, data) {
-    const clientId = socket.handshake.auth.clientId;
-    const roomName = clientId; // 假设房间名与 clientId 相同
-    const { target, requestId, role } = data;
-    let llmRequest = { ...data };
+    const requestingIdentity = socket.handshake.auth.clientId;
+    const targetRoom = data.targetRoom;
 
-    // 1. 验证请求
-    if (!target || !requestId) {
-      console.warn('Invalid LLM request:', data);
+    if (this.memberManagement.isMuted(requestingIdentity)) {
+      warn(`Muted user ${requestingIdentity} attempted to send LLM request in room ${targetRoom}.`, {}, 'MUTE_BLOCKED');
+      // 向用户发送错误提示
+      socket.emit(MSG_TYPE.ERROR, { message: 'You are currently muted and cannot send messages.' });
+      // 如果有回调，也告知失败
+      // if (callback) callback({ status: 'error', message: 'You are muted.' });
+      return; // 阻止后续处理
+    }
+
+    // --- 获取当前房间的模式 ---
+    const currentRoomMode = this.roomManagement.getRoomMessageRequestMode(targetRoom);
+
+    // --- 基础验证 (放在入口处) ---
+    const roomInfo = this.roomManagement.getRoomInfo(targetRoom);
+    if (!roomInfo || !roomInfo.members.has(requestingIdentity)) {
+      warn('Invalid or unauthorized targetRoom in LLM request', { requestingIdentity, targetRoom });
+      socket.emit(MSG_TYPE.ERROR, { message: 'Invalid or unauthorized target room.' });
       return;
     }
-    // 2. 将请求添加到消息队列, 并添加fromClient的标记
-    llmRequest = {
-      ...llmRequest,
-      fromClient: true
+    if (!data.requestId) { // target 在特定模式下才需要
+      warn('Invalid LLM request (missing requestId)', { data });
+      socket.emit(MSG_TYPE.ERROR, { message: 'Invalid LLM request data.' });
+      return;
     }
-    this.addMessage(roomName, llmRequest, false); // 添加到消息队列
 
-    // 3. 将请求添加到 llmRequests (用于后续路由响应)
-    this.llmRequests[requestId] = {
-      originalClient: clientId,
-      room: roomName,
-      target: target, // target 现在可以是字符串或数组
-      responses: [],  // 新增：存储响应 ID
-      completed: false, // 新增：请求是否完成
-      responseCount: 0 // 新增：已接收的响应数量
+    // --- 准备请求消息 ---
+    const currentRequestMessage = {
+      ...data,
+      identity: requestingIdentity,
+      fromClient: true
     };
-    // 4. 根据消息请求模式和角色处理请求
-    switch (this.messageRequestMode) {
-      case 'Default':
-        if (role === 'guest') {
-          // 将 guest 请求添加到队列
-          if (!this.guestRequestQueues[roomName]) {
-            this.guestRequestQueues[roomName] = [];
-          }
-          this.guestRequestQueues[roomName].push(llmRequest);
 
-        } else if (role === 'master') {
-          // 合并 guest 请求 (如果存在)
-          const guestRequests = this.guestRequestQueues[roomName];
-          if (guestRequests && guestRequests.length > 0) {
-            llmRequest = this.mergeMessages([...guestRequests, llmRequest]);
-            delete this.guestRequestQueues[roomName]; // 清空队列
-          }
-          // 转发给 SillyTavern 扩展端
-          this.forwardLlmRequest(target, llmRequest);
-        } else if (role === 'special') {
-          //特殊请求拥有仅次于master的优先级，但仍然需要等待master请求
-          if (!this.guestRequestQueues[roomName]) {
-            this.guestRequestQueues[roomName] = [];
-          }
-          this.guestRequestQueues[roomName].push(llmRequest);
-        }
-        break;
+    // --- 添加到消息队列并更新成员上下文 ---
+    const messageId = this.addMessage(targetRoom, currentRequestMessage, false);
+    if (!messageId) {
+      error('Failed to add LLM request message to queue.', { targetRoom, currentRequestMessage }, 'LLM_REQUEST_ERROR');
+      socket.emit(MSG_TYPE.ERROR, { message: 'Failed to record request message.' });
+      return;
+    }
+    try {
+      this.sendFullContextToRoomMembers(targetRoom); // 仅通知成员
+    } catch (error) {
+      error(`Failed to send fullContext to roomMembers.`, { error }, 'GET_CONTEXT_FAIL')
+    }
 
+    // --- 记录追踪信息 (所有模式都需要) ---
+    this.llmRequests[data.requestId] = {
+      originalClient: requestingIdentity,
+      room: targetRoom,
+      target: data.target, // 可能为 undefined
+      responses: [],
+      completed: false,
+      responseCount: 0
+    };
+
+    info(`Received LLM request for room ${targetRoom} from ${requestingIdentity}`, { requestId: data.requestId, mode: this.messageRequestMode }, 'LLM_REQUEST_RECEIVED');
+
+    // --- 根据模式调用对应的处理方法 ---
+    switch (currentRoomMode) { // **使用 currentRoomMode**
       case 'Immediate':
-        // 立即转发所有请求 (无需区分角色)
-        this.forwardLlmRequest(target, llmRequest);
+        this._handleImmediateRequest(targetRoom, currentRequestMessage, data.target, data.requestId, currentRoomMode); // 传递模式
         break;
-
-      // ... 其他模式 ...
+      case 'HostSubmit':
+        this._handleHostSubmitRequest(targetRoom, currentRequestMessage, data.target, data.requestId, data.role, currentRoomMode); // 传递模式
+        break;
       case 'MasterOnly':
-        if (role === 'master') {
-          this.forwardLlmRequest(target, llmRequest);
-        }
+        this._handleMasterOnlyRequest(targetRoom, currentRequestMessage, data.target, data.requestId, data.role, currentRoomMode); // 传递模式
         break;
-      case 'Separate':
-        this.forwardLlmRequest(target, llmRequest);
+      case 'Conversational':
+        this._handleConversationalRequest(targetRoom, currentRequestMessage, data.target, data.requestId, currentRoomMode); // 传递模式
         break;
-
       default:
-        console.warn('Unknown message request mode:', this.messageRequestMode);
+        warn(`Unknown message request mode '${currentRoomMode}' for room ${targetRoom}`, {}, 'LLM_REQUEST_WARN');
+        socket.emit(MSG_TYPE.ERROR, { message: `Invalid server mode configuration for this room.` });
+        delete this.llmRequests[data.requestId];
+    }
+  }
+
+  /** @private */
+  _handleImmediateRequest(targetRoom, currentRequestMessage, target, requestId, currentRoomMode) {
+    if (!target) {
+      warn('Immediate mode requires a target extension.', { requestId, targetRoom });
+      // 不需要再次发送错误给 socket，因为入口处已处理
+      // 但需要确保不继续执行
+      // 可以考虑清理已添加的 llmRequests 条目
+      delete this.llmRequests[requestId];
+      return;
+    }
+    const context = this.buildFullContext(targetRoom);
+    if (context === null) {
+      error(`Failed to build context for Immediate request ${requestId}.`, {}, 'LLM_REQUEST_ERROR');
+      delete this.llmRequests[requestId];
+      return;
+    }
+    const requestDataForExtension = {
+      mode: currentRoomMode,
+      requestId, targetRoom,
+      requestingIdentity: currentRequestMessage.identity,
+      currentRequest: currentRequestMessage,
+      context
+    };
+    info(`Forwarding Immediate request ${requestId} for room ${targetRoom}.`, { contextLength: context.length }, 'LLM_REQUEST_SEND');
+    this.forwardLlmRequest(target, requestDataForExtension);
+  }
+
+  /** @private */
+  _handleHostSubmitRequest(targetRoom, currentRequestMessage, target, requestId, role, currentRoomMode) {
+    if (role === 'guest' || role === 'special') {
+      if (!this.guestRequestQueues[targetRoom]) this.guestRequestQueues[targetRoom] = [];
+      this.guestRequestQueues[targetRoom].push(currentRequestMessage);
+      info(`Queued ${role} request ${requestId} for room ${targetRoom} in HostSubmit mode`, {}, 'LLM_REQUEST_QUEUED');
+      // Guest 请求在此处结束，等待主持人触发
+      // 不需要记录 llmRequests，因为没有请求发出
+      delete this.llmRequests[requestId]; // 清理入口处添加的追踪信息
+    } else if (role === 'master' || role === 'moderator') {
+      if (!target) { // 主持人提交时必须有目标
+        warn(`HostSubmit mode requires a target extension for submission.`, { requestId, targetRoom });
+        delete this.llmRequests[requestId];
+        return;
+      }
+      const guestRequests = this.guestRequestQueues[targetRoom];
+      let messagesToMerge = [currentRequestMessage];
+      let finalRequestId = requestId; // 默认使用主持人的请求 ID
+
+      if (guestRequests && guestRequests.length > 0) {
+        messagesToMerge = [...guestRequests, currentRequestMessage];
+        info(`Found ${guestRequests.length} guest requests to merge for room ${targetRoom}`, { requestId }, 'LLM_REQUEST_MERGE');
+        delete this.guestRequestQueues[targetRoom]; // 清空队列
+        // 合并请求时，可能需要生成一个新的 requestId 或选择主持人的 requestId
+        // 这里我们选择保留主持人的 requestId (已在 llmRequests 中)
+      }
+
+      let finalRequestObject = currentRequestMessage;
+      if (messagesToMerge.length > 1) {
+        const mergedResult = this.mergeMessages(messagesToMerge);
+        if (mergedResult) {
+          finalRequestObject = mergedResult;
+          // 如果 mergeMessages 生成了新的 requestId, 需要更新 llmRequests
+          // 如果沿用主持人的 requestId，则无需更新
+          finalRequestId = mergedResult.requestId || requestId; // 确保 ID 正确
+          // 更新追踪信息中的 target (如果之前未提供)
+          this.llmRequests[finalRequestId].target = target;
+          info(`Merged ${messagesToMerge.length} requests for room ${targetRoom}.`, { finalRequestId }, 'LLM_REQUEST_SEND');
+        } else {
+          warn(`Merging messages failed for room ${targetRoom}, sending only host request.`, { requestId }, 'LLM_REQUEST_MERGE_FAIL');
+        }
+      } else {
+        info(`Forwarding HostSubmit request (no guests) ${requestId} for room ${targetRoom}.`, {}, 'LLM_REQUEST_SEND');
+      }
+
+      const context = this.buildFullContext(targetRoom);
+      const requestDataForExtension = {
+        mode: currentRoomMode,
+        requestId: finalRequestId, // 使用最终的请求 ID
+        targetRoom,
+        requestingIdentity: currentRequestMessage.identity, // 主持人的 identity
+        currentRequest: finalRequestObject, // 原始或合并后的消息
+        context
+      };
+      this.forwardLlmRequest(target, requestDataForExtension);
+    } else {
+      // 非 guest/special/host 的角色请求在 HostSubmit 模式下被忽略
+      info(`Ignoring request from role '${role}' in HostSubmit mode.`, { requestId, targetRoom }, 'LLM_REQUEST_IGNORE');
+      delete this.llmRequests[requestId]; // 清理追踪信息
+    }
+  }
+
+  /** @private */
+  _handleMasterOnlyRequest(targetRoom, currentRequestMessage, target, requestId, role, currentRoomMode) {
+    if (role === 'master' || role === 'moderator') {
+      if (!target) {
+        warn(`MasterOnly mode requires a target extension.`, { requestId, targetRoom });
+        delete this.llmRequests[requestId];
+        return;
+      }
+      const context = this.buildFullContext(targetRoom);
+      const requestDataForExtension = {
+        mode: currentRoomMode,
+        requestId, targetRoom,
+        requestingIdentity: currentRequestMessage.identity,
+        currentRequest: currentRequestMessage,
+        context
+      };
+      info(`Forwarding MasterOnly request ${requestId} for room ${targetRoom}.`, { contextLength: context?.length || 0 }, 'LLM_REQUEST_SEND');
+      this.forwardLlmRequest(target, requestDataForExtension);
+    } else {
+      info(`Ignoring non-master/moderator request ${requestId} in MasterOnly mode.`, { targetRoom, role }, 'LLM_REQUEST_IGNORE');
+      delete this.llmRequests[requestId]; // 清理追踪信息
+    }
+  }
+
+  /** @private */
+  _handleConversationalRequest(targetRoom, currentRequestMessage, target, requestId, currentRoomMode) {
+    if (target) {
+      // 用户明确指定了目标 (@LLM) - 行为类似 Immediate
+      info(`Handling direct conversational request ${requestId} to target ${target}.`, { targetRoom }, 'CONV_REQUEST_DIRECT');
+      const context = this.buildFullContext(targetRoom);
+      if (context === null) {
+        error(`Failed to build context for Conversational direct request ${requestId}.`, {}, 'LLM_REQUEST_ERROR');
+        delete this.llmRequests[requestId];
+        return;
+      }
+      const requestDataForExtension = {
+        mode: currentRoomMode,
+        type: 'DIRECT_REQUEST', // 区分是用户直接请求
+        requestId, targetRoom,
+        requestingIdentity: currentRequestMessage.identity,
+        currentRequest: currentRequestMessage,
+        context
+      };
+      this.forwardLlmRequest(target, requestDataForExtension);
+      // 可选：重置该 target 扩展在该房间的后台思考计时器
+      // this._resetConversationalTimer(targetRoom, target);
+    } else {
+      // 用户没有指定目标 - 消息仅用于丰富上下文，由后台思考触发器处理
+      info(`Received ambient conversational message ${requestId} for context in room ${targetRoom}.`, {}, 'CONV_REQUEST_AMBIENT');
+      // 不需要向任何扩展发送请求，后台触发器会处理
+      // 但入口处已经添加了消息到队列并记录了 llmRequests，这里需要清理
+      delete this.llmRequests[requestId]; // 清理追踪信息，因为没有请求发出
     }
   }
 
   /**
    * 转发 LLM 请求给 SillyTavern 扩展端。
-   * @param {string | string[]} target - 目标 SillyTavern 扩展端的 clientId (或 clientId 数组)。
-   * @param {object} request - 请求数据。
+   * @param {string | string[]} target - 目标扩展的 identity (或数组)。
+   * @param {object} requestData - 包含模式、上下文、当前请求等的结构化数据。
    */
-  forwardLlmRequest(target, request) {
+  forwardLlmRequest(target, requestData) {
+    // 不再直接发送原始请求 'data'，而是发送结构化的 'requestData'
+    const eventType = MSG_TYPE.LLM_REQUEST; // 使用标准请求事件类型
+
     if (Array.isArray(target)) {
-      // 如果 target 是数组，则向每个目标发送请求
       for (const t of target) {
-        this.io.of(NAMESPACES.LLM).to(t).emit(MSG_TYPE.LLM_REQUEST, request);
+        this.io.of(NAMESPACES.LLM).to(t).emit(eventType, requestData);
       }
     } else {
-      // 如果 target 是字符串，则直接发送请求
-      this.io.of(NAMESPACES.LLM).to(target).emit(MSG_TYPE.LLM_REQUEST, request);
+      this.io.of(NAMESPACES.LLM).to(target).emit(eventType, requestData);
     }
   }
 
   /**
-   * 处理 LLM 响应。
-   * @param {string} roomName - 房间名
-   * @param {object} data - 响应数据。
+   * 处理 LLM 响应的核心逻辑：记录响应、更新上下文、更新状态。
+   * 注意：响应内容的实时转发由 stream.js 和 non_stream.js 处理。
+   * @param {string} roomName - 响应对应的房间名 (由 stream/non_stream 模块根据 requestId 确定并传入)。
+   * @param {object} data - 响应数据 (由 stream/non_stream 组装或直接获取)。
+   *                        应包含 requestId, data/response (内容), responderIdentity (可选) 等。
    */
   handleLlmResponse(roomName, data) {
     const { requestId } = data;
 
-    // 1. 查找原始请求
-    const originalRequest = this.llmRequests[requestId];
+    const currentRoomMode = this.roomManagement.getRoomMessageRequestMode(targetRoomForResponse);
 
-    if (!originalRequest) {
-      console.warn(`No matching request found for requestId: ${requestId}`);
-      return;
+    // 检查 roomName 是否有效
+    if (!this.roomManagement.rooms[roomName]) {
+      warn(`Invalid roomName '${roomName}' provided to handleLlmResponse for requestId ${requestId}.`, {}, 'LLM_RESPONSE_WARN');
+      // 尝试从 llmRequests 恢复 roomName (如果可能)
+      const requestInfo = this.llmRequests[requestId];
+      if (requestInfo && this.roomManagement.rooms[requestInfo.room]) {
+        roomName = requestInfo.room;
+        info(`Recovered roomName '${roomName}' from llmRequests for requestId ${requestId}.`, {}, 'LLM_RESPONSE_INFO');
+      } else {
+        error(`Cannot determine valid room for response ${requestId}. Aborting processing.`, { data }, 'LLM_RESPONSE_ERROR');
+        return; // 无法确定房间，无法继续
+      }
     }
 
-    // 2. 为每个响应生成唯一的 responseId
+    const originalRequest = this.llmRequests[requestId]; // 用于状态更新和获取原始客户端
+    const isBackgroundThinkResponse = !originalRequest && (data.type === 'THINK_RESPONSE' || requestId?.startsWith('think_'));
+
+    // --- 1. 准备响应消息对象 ---
     const responseId = uuidv4();
+    const responseContent = data.data || data.response || '';
+    // 尝试确定响应者 identity
+    const responderIdentity = data.responderIdentity || (originalRequest ? originalRequest.target : data.source); // 尝试多种来源
+
+    if (!responderIdentity) {
+      warn(`LLM response for ${requestId} lacks responder identity.`, { data }, 'LLM_RESPONSE_WARN');
+      // 可能需要进一步处理或记录
+    }
+
     const fullResponse = {
       ...data,
-      responseId: responseId // 将 responseId 添加到响应数据中
-    }
-    // 3. 将响应添加到对应房间的llmResponseQueues中
-    const messageId = this.addMessage(roomName, fullResponse, true);
+      identity: responderIdentity,
+      responseId: responseId,
+      data: responseContent,
+      isResponse: true,
+      timestamp: new Date()
+    };
 
-    // 4. 将 responseId 添加到 llmRequests.responses 数组
-    originalRequest.responses.push(responseId);
-    originalRequest.responseCount++;
-    // 5. 检查是否所有响应都已收到 (简化版，假设 target 数量已知)
-    if (Array.isArray(originalRequest.target) && originalRequest.responseCount >= originalRequest.target.length) {
-      originalRequest.completed = true;
-      // (可选) 从 llmRequests 中移除已完成的请求
-      // delete this.llmRequests[requestId];
-      // 或者添加到 completedRequests 集合，稍后统一清理
+    // --- 2. 记录响应到队列 ---
+    const messageId = this.addMessage(roomName, fullResponse, true); // true 表示是 LLM 响应
+    if (!messageId) {
+      error(`Failed to add LLM response message ${responseId} to queue for room ${roomName}.`, { requestId }, 'LLM_RESPONSE_ERROR');
+      // 即使添加失败，也继续尝试更新上下文和状态
+    } else {
+      info(`Recorded LLM response ${responseId} (from req ${requestId}) to room ${roomName} queue.`, {}, 'LLM_RESPONSE_RECORDED');
     }
+
+    // --- 3. 更新并广播上下文给房间成员 ---
+    // 注意： stream.js/non_stream.js 已经将响应内容实时/完整地发给了房间
+    // sendFullContextToRoomMembers 会再次发送完整历史，确保成员端上下文一致
+    try {
+      this.sendFullContextToRoomMembers(roomName);
+    } catch (error) {
+      error(`Failed to send fullContext to roomMembers.`, { error }, 'GET_CONTEXT_FAIL')
+    }
+
+    // --- 4. 更新请求状态 (仅对用户直接请求) ---
+    if (originalRequest) {
+      originalRequest.responses.push(responseId);
+      originalRequest.responseCount++;
+      const expectedResponses = Array.isArray(originalRequest.target) ? originalRequest.target.length : 1;
+      if (originalRequest.responseCount >= expectedResponses) {
+        originalRequest.completed = true;
+        info(`User request ${requestId} for room ${roomName} completed.`, {}, 'LLM_REQUEST_COMPLETE');
+        // 可选清理: delete this.llmRequests[requestId];
+      }
+
+      // --- 5. (可选) 通知原始请求者请求已完成 ---
+      //   这里不发送响应内容，只发送确认信息
+      const completionData = {
+        mode: currentRoomMode,
+        roomName: roomName,
+        requestId: requestId,
+        responseId: responseId, // 可以包含最后一个收到的 responseId
+        status: originalRequest.completed ? 'completed' : 'processing', // 告知当前状态
+      };
+      this.io.of(NAMESPACES.LLM).to(originalRequest.originalClient).emit(MSG_TYPE.REQUEST_STATUS_UPDATE, completionData); // 使用新事件类型
+      info(`Sent request status update for ${requestId} to client ${originalRequest.originalClient}. Status: ${completionData.status}`, {}, 'LLM_RESPONSE_NOTIFY');
+
+    } else if (isBackgroundThinkResponse) {
+      // 后台思考请求没有原始客户端需要通知完成状态
+      info(`Processed background thinking response ${responseId} for room ${roomName}.`, {}, 'CONV_THINK_PROCESSED');
+    }
+
   }
 
   /**
-   * 获取指定房间的完整上下文（用于离线消息或其他需要完整上下文的场景）。
-   * @param {string} identity - 客户端 ID (用于记录日志)。
-   * @param {string} roomName - 房间名。
-   * @returns {object[] | null} - 完整的聊天上下文 (消息数组)，如果房间不存在则返回 null。
+   * 获取指定房间的完整上下文，并通过传入的 Socket 分页发送。
+   * @param {import('socket.io').Socket} socket - 用于接收分页上下文的客户端 Socket 实例。
+   * @param {string} roomName - 需要获取上下文的房间名。
+   * @returns {Promise<boolean>} - 返回一个 Promise，表示发送操作是否开始（不保证完成）。
+   *                             如果房间不存在或无法构建上下文，则 resolve 为 false。
    */
-  getOfflineMessages(identity, roomName) {
-    if (!this.rooms[roomName]) {
-      warn('Room not found', { identity, roomName }, 'GET_OFFLINE_MESSAGES');
-      return null; // 房间不存在
+  async getOfflineMessages(socket, roomName) {
+    // 验证权限：该 socket (identity) 是否是 roomName 的成员？
+    const identity = socket.handshake.auth.clientId; // 获取请求者的 identity
+    const roomInfo = this.roomManagement.getRoomInfo(roomName);
+    if (!this.roomManagement.rooms[roomName] || !roomInfo.members.has(identity)) {
+      warn(`Unauthorized attempt to get offline messages for room ${roomName} by ${identity}.`, {}, 'GET_OFFLINE_UNAUTHORIZED');
+      socket.emit(MSG_TYPE.ERROR, { message: `You are not a member of room ${roomName}.` });
+      return false; // 权限不足
     }
 
-    info('Returning full context', { identity, roomName }, 'GET_OFFLINE_MESSAGES');
-    return this.buildFullContext(roomName); // 返回完整上下文
+    info(`Requesting offline messages for room ${roomName} by ${identity}.`, {}, 'GET_OFFLINE_REQUEST');
+    const fullContext = this.buildFullContext(roomName);
+
+    if (fullContext === null) {
+      warn('Room not found or context is null when getting offline messages', { identity, roomName }, 'GET_OFFLINE_ERROR');
+      socket.emit(MSG_TYPE.ERROR, { message: `Could not retrieve context for room ${roomName}.` });
+      return false; // 房间不存在或无法构建上下文
+    }
+
+    // 调用通用分页函数，目标是单个 socket
+    try {
+      await this._sendPaginatedContext(socket, roomName, fullContext);
+    } catch (error) {
+      error(`Failed to send Paginated Context`, { error }, 'CONTEXT_PAGING')
+      return;
+    }
+    return true; // 表示发送已开始
+  }
+
+  /**
+   * 广播成员状态更新给指定房间的所有成员。
+   * @function broadcastMemberStatus
+   * @param {string} roomName - 状态更新发生的房间名。
+   * @param {string} identity - 状态发生变化的成员的 identity。
+   * @param {string} status - 新的状态 ('idle', 'typing', 'processing')。
+   */
+  broadcastMemberStatus(roomName, identity, status) {
+    // 验证状态是否有效
+    if (!Object.values(MEMBER_STATUS).includes(status)) {
+      warn(`Attempted to broadcast invalid status '${status}' for ${identity} in ${roomName}.`, {}, 'STATUS_UPDATE_WARN');
+      return;
+    }
+
+    const roomInfo = this.roomManagement.getRoomInfo(roomName);
+    if (!roomInfo) {
+      // 房间不存在，无法广播
+      return;
+    }
+
+    const statusData = {
+      identity: identity,
+      roomName: roomName,
+      status: status,
+      timestamp: new Date(),
+    };
+
+    // 向房间内的所有成员广播状态更新
+    // 注意：不应该只发给其他人，自己也需要收到状态更新来同步 UI（如果需要）
+    this.io.of(NAMESPACES.LLM).to(roomName).emit(MSG_TYPE.MEMBER_STATUS_UPDATE, statusData);
+    debug(`Broadcast status update for ${identity} in ${roomName}: ${status}`, {}, 'STATUS_UPDATE_BCAST');
   }
 
   // ... 方法 ...

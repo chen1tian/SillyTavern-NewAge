@@ -39,17 +39,33 @@ const MSG_TYPE = {
   REMOVE_CLIENT_FROM_ROOM: 'REMOVE_CLIENT_FROM_ROOM',
   SET_CONNECTION_POLICY: 'SET_CONNECTION_POLICY',
   GET_ASSIGNMENTS_FOR_ROOM: 'GET_ASSIGNMENTS_FOR_ROOM',
+  SET_ROOM_MESSAGE_REQUEST_MODE: 'SET_ROOM_MESSAGE_REQUEST_MODE', // 客户端 -> 服务器 /rooms
+  ROOM_MODE_CHANGED: 'ROOM_MODE_CHANGED',                   // 服务器 -> 客户端 /rooms 或 /llm
 
   // LLM 聊天
   GET_OFFLINE_MESSAGES: 'GET_OFFLINE_MESSAGES', // 客户端 -> 服务器: 获取断连前的消息
   OFFLINE_MESSAGES: 'OFFLINE_MESSAGES', // 服务器 -> 客户端: 离线消息
   LLM_REQUEST: 'LLM_REQUEST', // 客户端/服务器 -> 服务器/SillyTavern：LLM 对话请求
+  LLM_RESPONSE: 'LLM_RESPONSE', // stream.js/non_stream.js 发送给房间的事件
+  REQUEST_STATUS_UPDATE: 'REQUEST_STATUS_UPDATE', // handleLlmResponse 发送给原始请求者的状态更新事件
   NEW_MESSAGE: 'NEW_MESSAGE',
   SET_MESSAGE_REQUEST_MODE: 'SET_MESSAGE_REQUEST_MODE',
   EDIT_MESSAGE: 'EDIT_MESSAGE',
   DELETE_MESSAGE: 'DELETE_MESSAGE',
   CLEAR_MESSAGES: 'CLEAR_MESSAGES',
+  MESSAGE_UPDATED: 'MESSAGE_UPDATED',
+  MESSAGES_CLEARED: 'MESSAGES_CLEARED',
   UPDATE_CONTEXT: 'UPDATE_CONTEXT',
+  UPDATE_CONTEXT_PAGE: 'UPDATE_CONTEXT_PAGE',
+  MEMBER_STATUS_UPDATE: 'MEMBER_STATUS_UPDATE', // 服务器 -> 房间
+  START_TYPING: 'START_TYPING',             // 客户端 -> 服务器
+  STOP_TYPING: 'STOP_TYPING',               // 客户端 -> 服务器
+  START_PROCESSING: 'START_PROCESSING',         // 扩展端 -> 服务器
+  STOP_PROCESSING: 'STOP_PROCESSING',          // 扩展端 -> 服务器
+  MUTE_MEMBER: 'MUTE_MEMBER',         // 客户端 -> 服务器 /rooms 或 /admin
+  UNMUTE_MEMBER: 'UNMUTE_MEMBER',       // 客户端 -> 服务器 /rooms 或 /admin
+  MEMBER_MUTED: 'MEMBER_MUTED',       // 服务器 -> 客户端 (被禁言者/房间)
+  MEMBER_UNMUTED: 'MEMBER_UNMUTED',     // 服务器 -> 客户端 (被解除者/房间)
 
   // SillyTavern 相关
   CLIENT_SETTINGS: 'CLIENT_SETTINGS', // SillyTavern -> 服务器：客户端设置
@@ -211,6 +227,13 @@ const EVENTS = {
   CONFIG_SAVED: 'CONFIG_SAVED',
   FUNCTION_REGISTER: 'FUNCTION_REGISTER',
 
+};
+
+export const MEMBER_STATUS = {
+  IDLE: 'idle',
+  TYPING: 'typing',
+  PROCESSING: 'processing',
+  THINKING_PAUSED: 'paused',//用于更丰富的思考状态
 };
 
 // 导出时按字母顺序排列，方便查找

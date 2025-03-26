@@ -145,6 +145,34 @@ class RelationsManage {
   }
 
   /**
+   * 查找分配了指定扩展的所有客户端房间。
+   * @function findRoomsForExtension
+   * @param {string} extensionIdentity - 要查找的扩展的 identity。
+   * @returns {string[]} - 分配了该扩展的所有客户端房间名的数组。
+   */
+  findRoomsForExtension(extensionIdentity) {
+    const assignedRooms = [];
+    if (!extensionIdentity) {
+      warn('findRoomsForExtension called with empty extensionIdentity.', {}, 'RELATIONS_FIND_WARN');
+      return assignedRooms; // 返回空数组
+    }
+
+    // 遍历当前生效的分配关系 this.assignments
+    for (const clientRoom in this.assignments) {
+      // 确保是对象自身的属性
+      if (this.assignments.hasOwnProperty(clientRoom)) {
+        const assignedExts = this.assignments[clientRoom]; // 获取分配给该房间的扩展列表
+        // 检查列表是否存在且包含目标扩展
+        if (Array.isArray(assignedExts) && assignedExts.includes(extensionIdentity)) {
+          assignedRooms.push(clientRoom);
+        }
+      }
+    }
+    debug(`Found ${assignedRooms.length} rooms assigned to extension ${extensionIdentity}.`, { rooms: assignedRooms }, 'RELATIONS_FIND');
+    return assignedRooms;
+  }
+
+  /**
    * 添加已连接的扩展端。
    * @param {string} extensionId - 扩展端 clientId。
    */
