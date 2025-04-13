@@ -2,6 +2,7 @@
 
 import { MSG_TYPE } from '../lib/constants.js';
 import { uuidv4 } from '../lib/uuid/uuid.js';
+import { logger, error, warn, info } from './logger.js';
 
 /**
  * 发送非流式消息 / Sends a non-stream message.

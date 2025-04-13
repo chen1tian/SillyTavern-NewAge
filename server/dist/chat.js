@@ -7,12 +7,11 @@ import { logger, error, warn, info } from './logger.js';
 import { MemberManagement } from './memberManagement.js';
 import { RelationsManage } from './relationsManage.js';
 import { RoomManagement } from './roomManagement.js';
-import { serverSettings } from '../server.js';
 import { VALID_ROOM_MODES } from './roomManagement.js'; // 导入有效模式列表
 
-import { eventEmitter } from 'events';
+import { EventEmitter } from 'events';
 
-var event = new eventEmitter();
+var event = new EventEmitter();
 
 /**
  * @class ChatModule
@@ -25,8 +24,9 @@ class ChatModule {
   /**
    * @constructor
    * @param {import('socket.io').Server} io - Socket.IO 服务器实例。
+   * @param {object} [serverSettings={}] - 服务器设置对象。
    */
-  constructor(io) {
+  constructor(io, serverSettings = {}) {
     /** @type {import('socket.io').Server} io - Socket.IO 服务器实例 */
     this.io = io;
 

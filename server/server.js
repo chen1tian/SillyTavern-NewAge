@@ -50,8 +50,6 @@ let io = new Server(httpServer, {
 
 export { io };
 
-const chatModule = new ChatModule(io);
-
 let serverSettings = {
   serverPort: 4000,
   serverAddress: 'http://localhost',
@@ -69,6 +67,8 @@ let serverSettings = {
   contextSendDelay: 100, // 发送每页之间的延迟（毫秒） (可配置, 0表示无延迟)
   defaultRoomMessageRequestMode: 'Immediate',
 };
+
+const chatModule = new ChatModule(io, serverSettings);
 
 export { serverSettings };
 

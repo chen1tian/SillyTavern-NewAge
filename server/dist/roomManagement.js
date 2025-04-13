@@ -4,12 +4,12 @@ import { NAMESPACES, MSG_TYPE } from '../lib/constants.js';
 import * as SocketRooms from './Rooms.js'; // 底层 Socket.IO 房间操作
 import { logger, error, warn, info } from './logger.js';
 import { serverSettings } from '../server.js'; // 导入服务器设置以获取默认模式
-import { eventEmitter } from 'events';
+import { EventEmitter } from 'events';
 
 // 定义有效的房间模式常量
-const VALID_ROOM_MODES = ['Immediate', 'HostSubmit', 'MasterOnly', 'Conversational'];
+export const VALID_ROOM_MODES = ['Immediate', 'HostSubmit', 'MasterOnly', 'Conversational'];
 
-var event = new eventEmitter();
+var event = new EventEmitter();
 
 class RoomManagement {
   /**
